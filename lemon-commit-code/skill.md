@@ -1,6 +1,6 @@
 ---
 name: lemon-commit-code
-description: 代码提交与推送技能。审查变更代码后生成规范提交信息并推送到仓库。使用流程：1) 使用 git status/diff 查看变更 2) 审查代码质量 3) 生成提交信息 4) 提交并推送。支持 Conventional Commits 规范。
+description: 代码提交与推送技能。审查变更代码后生成规范提交信息并推送到所有远程仓库。使用流程：1) 使用 git status/diff 查看变更 2) 审查代码质量 3) 生成提交信息 4) 提交并推送到所有远程仓库。支持 Conventional Commits 规范。
 ---
 
 # Lemon Commit Code
@@ -105,35 +105,41 @@ EOF
 - 修改文件 (modified files)
 - 删除文件 (deleted files)
 
-### 5. 推送代码到所有仓库
+### 5. 推送到所有远程仓库（⚠️ 强制执行）
+
+**⚠️ 强制要求：必须推送到所有远程仓库，不得遗漏任何仓库！**
 
 ```bash
-# 获取当前分支名
-git rev-parse --abbrev-ref HEAD
+# 步骤1: 查看所有远程仓库
+git remote
 
-# 方法1: 推送到所有远程仓库（推荐）
-for remote in $(git remote); do
-    git push $remote $(git rev-parse --abbrev-ref HEAD)
-done
+# 步骤2: 获取当前分支名
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# 步骤3: 推送到所有远程仓库（三选一）
+
+# 方法1: Bash 循环推送（推荐 - 适用于 Git Bash/Linux）
+for remote in $(git remote); do git push $remote $CURRENT_BRANCH; done
 
 # 方法2: Windows PowerShell 版本
-git remote | ForEach-Object { git push $_ $(git rev-parse --abbrev-ref HEAD) }
+git remote | ForEach-Object { git push $_ $env:CURRENT_BRANCH }
 
-# 方法3: 逐个推送到每个远程仓库
-git push origin master
-git push github master
-# 添加更多远程仓库...
+# 方法3: 逐个推送（最明确，不会遗漏）
+git push origin $CURRENT_BRANCH
+git push github $CURRENT_BRANCH
+git push gitee $CURRENT_BRANCH
+# ... 继续推送所有其他仓库
 ```
 
-**重要**：
-- **必须推送到所有远程仓库**：不仅仅是 origin，要遍历 `git remote` 列出的所有仓库
-- 常见远程仓库：`origin`、`github`、`gitee` 等
-- 推送前确认当前分支名正确
+**执行后验证**：
+- 必须确认每个仓库都推送成功
+- 如有失败必须重试直到全部成功
+- 输出推送结果表格，显示所有仓库状态
 
 ## 注意事项
 
 1. **必须审查**: 提交前必须先进行代码审查，发现问题需提示用户
-2. **推送到所有仓库**: 必须推送到所有远程仓库（origin、github、gitee 等），不能只推送到单个仓库
+2. **⚠️ 推送到所有仓库**: 必须推送到所有远程仓库（origin、github、gitee 等），不能只推送到单个仓库，这是强制要求
 3. **不添加 AI 署名**: 提交信息中不要添加 `Co-authored-by: Claude` 等 AI 署名信息
 4. **包含新文件**: 使用 `git add -A` 会包含所有新增文件，需确认没有敏感或不需要提交的文件
 5. **用户确认**: 重大变更或复杂功能建议用户确认后再提交
@@ -161,10 +167,10 @@ git push github master
    - 添加记住密码功能
    - 优化登录错误提示
    ```
-6. `git add -A` → `git commit` → 推送到所有远程仓库
+6. `git add -A` → `git commit` → **推送到所有远程仓库**
    ```bash
-   git remote  # 查看所有远程仓库
-   git push origin master
-   git push github master
-   # 或使用循环推送所有仓库
+   git remote                    # 查看所有远程仓库
+   git push origin master        # 推送到 origin
+   git push github master        # 推送到 github
+   # 必须推送所有仓库，不能遗漏
    ```
