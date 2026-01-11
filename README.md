@@ -4,11 +4,60 @@
 
 ## 📋 目录
 
+- [目录结构](#目录结构)
 - [技能列表](#技能列表)
+- [Agents](#agents)
+- [第三方插件](#第三方插件)
 - [快速开始](#快速开始)
 - [技能详解](#技能详解)
 - [贡献指南](#贡献指南)
 - [许可证](#许可证)
+
+## 📁 目录结构
+
+```
+claude-skills/
+├── README.md                    # 项目说明文档
+├── agents/                      # Claude Code 专用 Agents
+│   ├── backend-architect.md     # 后端架构专家
+│   ├── code-reviewer.md         # 代码审查专家
+│   ├── context-manager.md       # 上下文管理专家
+│   ├── error-detective.md       # 错误侦探
+│   ├── frontend-developer.md    # 前端开发专家
+│   ├── fullstack-developer.md   # 全栈开发专家
+│   ├── performance-engineer.md  # 性能工程师
+│   ├── task-decomposition-expert.md  # 任务分解专家
+│   ├── technical-researcher.md  # 技术研究员
+│   └── test-engineer.md         # 测试工程师
+│
+├── third-party/                 # 第三方插件集合
+│   └── obsidian-skills/         # Obsidian 技能插件 (来自 kepano/obsidian-skills)
+│       ├── obsidian-markdown/   # Obsidian Markdown 编辑
+│       ├── obsidian-bases/      # Obsidian Bases 编辑
+│       └── json-canvas/         # JSON Canvas 编辑
+│
+├── artifacts-builder/           # 创建复杂 HTML artifacts (React + Tailwind + shadcn/ui)
+├── canvas-design/               # 创建视觉艺术设计 (PNG/PDF)
+├── changelog-generator/         # 自动生成 changelog
+├── consumption-statistics/      # 消费统计助手
+├── docx/                        # Word 文档处理
+├── lemon-code-review/           # 代码审查与优化
+├── lemon-commit-code/           # 代码提交与推送
+├── pdf/                         # PDF 工具包
+├── period-report-generator/     # 周期统计报表生成器
+├── pptx/                        # PowerPoint 演示文稿处理
+├── prompt-engineering/          # 提示词工程
+├── publish-blog/                # 博客发布助手
+├── skill-creator/               # 技能创建指南
+├── slack-gif-creator/           # Slack GIF 创建器
+└── web-artifacts-builder/       # Web artifacts 构建器
+```
+
+### 目录说明
+
+- **根目录技能**: 自主开发或维护的独立技能
+- **agents/**: Claude Code 专用代理，用于特定任务自动化
+- **third-party/**: 来自社区的第三方插件集合
 
 ## 🎯 技能列表
 
@@ -29,6 +78,65 @@
 | **skill-creator** | 创建有效技能的指南，帮助扩展 Claude 能力 | 开发工具 |
 | **prompt-engineering** | 优化 LLM 交互的提示工程技能 | 开发工具 |
 | **slack-gif-creator** | 创建适合 Slack 的动画 GIF | 媒体工具 |
+
+## 🤖 Agents
+
+本仓库包含 10 个 Claude Code 专用 Agents，来自 [Superpowers 插件](https://github.com/obra/superpowers)，用于自动化处理特定任务。
+
+| Agent | 描述 |
+|:---|:---|
+| **backend-architect** | 后端系统架构和 API 设计专家 |
+| **code-reviewer** | 代码质量、安全性和可维护性审查专家 |
+| **context-manager** | 多代理工作流和长时间运行任务的上下文管理专家 |
+| **error-detective** | 日志分析和错误模式检测专家 |
+| **frontend-developer** | React 应用和响应式设计专家 |
+| **fullstack-developer** | 端到端应用开发专家 |
+| **performance-engineer** | 性能分析、瓶颈优化和缓存策略专家 |
+| **task-decomposition-expert** | 复杂目标分解和工作流编排专家 |
+| **technical-researcher** | 代码库分析、技术文档和实现方案研究专家 |
+| **test-engineer** | 测试策略、自动化测试和质量保证专家 |
+
+### 使用 Agents
+
+Agents 通常由 Claude Code 自动调用，但也可以通过特定场景触发：
+
+```
+# 研究代码库
+"帮我研究这个项目的数据库架构"
+
+# 审查代码
+"审查我的代码并提供改进建议"
+
+# 性能分析
+"分析我的应用性能瓶颈"
+```
+
+## 📦 第三方插件
+
+本仓库集成了来自社区的第三方插件集合。
+
+### obsidian-skills
+
+**来源**: [kepano/obsidian-skills](https://github.com/kepano/obsidian-skills)
+
+**作者**: kepano
+
+**描述**: 用于使用 Obsidian 的 Claude Skills，支持创建和编辑 Obsidian 兼容的文件格式。
+
+**包含技能**:
+
+| 技能 | 描述 |
+|:---|:---|
+| **obsidian-markdown** | 创建和编辑 Obsidian 风格的 Markdown 文件，支持 wikilinks、嵌入、标注、属性等 |
+| **obsidian-bases** | 创建和编辑 Obsidian Bases (.base) 文件，支持视图、过滤器、公式和汇总 |
+| **json-canvas** | 创建和编辑 JSON Canvas 文件 (.canvas)，支持节点、边、分组和连接 |
+
+**安装方式**:
+
+```powershell
+# 复制到 Claude Code 技能目录
+Copy-Item -Path "claude-skills\third-party\obsidian-skills\*" -Destination "$env:USERPROFILE\.claude\skills\obsidian-skills\" -Recurse -Force
+```
 
 ## 🚀 快速开始
 
