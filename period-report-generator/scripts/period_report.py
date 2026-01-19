@@ -152,24 +152,31 @@ def build_blood_sugar_ascii(title: str, data: dict) -> str:
     chart_lines = []
     chart_lines.append(f"{title}:")
 
-    # Y轴刻度和数据
+    # Y轴刻度和数据 - 使用固定宽度对齐
+    col_width = 4  # 每列宽度
+
     for i in range(y_steps):
         y_val = y_max - (i * y_increment)
-        y_label = f"{y_val:.1f}"
+        y_label = f"{y_val:5.1f} ┤"
 
-        # 空腹血糖数据点
-        line = f"{y_label:5s} ┤"
+        # 为每个数据点生成对应的位置
+        line_parts = [y_label]
         for j, val in enumerate(fasting_data):
             if val is not None and abs(val - y_val) < y_increment / 2:
-                line += "  █"
+                line_parts.append(" █ ")  # 使用固定宽度
             else:
-                line += "  "
+                line_parts.append("   ")
 
-        chart_lines.append(line)
+        chart_lines.append("".join(line_parts))
 
-    # X轴
-    chart_lines.append("     ┼" + "─" * (len(labels) * 3))
-    chart_lines.append("      " + "  ".join(f"{l:2s}" for l in labels) + " (日期)")
+    # X轴标签也使用固定宽度对齐
+    x_axis_line = "     ┼" + "───" * len(labels)
+    chart_lines.append(x_axis_line)
+
+    label_line = "      "
+    for label in labels:
+        label_line += f" {label:>2s} "
+    chart_lines.append(label_line + " (日期)")
 
     chart_lines.append("")
 
@@ -651,6 +658,189 @@ def analyze_sleep_quality(data: list) -> dict:
     return result
 
 
+def generate_daily_blood_sugar_details(blood_sugar_data: list) -> str:
+    """生成逐日血糖数据明细"""
+    lines = ["\n**逐日数据**:\n"]
+
+    for d in blood_sugar_data:
+        date = d.get('date', '')
+        fasting = d.get('fasting')
+        post_meal = d.get('post_meal')
+        bedtime = d.get('bedtime')
+
+        parts = []
+        if fasting is not None:
+            status = "✅ 正常" if 3.9 <= fasting <= 6.1 else "⚠️ 偏高"
+            parts.append(f"空腹: {fasting} mmol/L {status}")
+        if post_meal is not None:
+            status = "✅ 正常" if 4.4 <= post_meal <= 7.8 else "⚠️ 偏高"
+            parts.append(f"餐后2h: {post_meal} mmol/L {status}")
+        if bedtime is not None:
+            status = "✅ 正常" if 4.4 <= bedtime <= 7.8 else "⚠️ 偏高"
+            parts.append(f"睡前: {bedtime} mmol/L {status}")
+
+        if parts:
+            lines.append(f"- {date}: {', '.join(parts)}")
+
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
+def generate_blood_sugar_conclusion(analysis: dict, report_type: str = "本周") -> str:
+    """生成血糖趋势分析结论"""
+    conclusions = []
+
+    # 空腹血糖分析
+    if analysis['fasting_count'] > 0:
+        if analysis['fasting_avg'] > 6.1:
+            high_days = analysis['fasting_count'] - analysis['fasting_in_range']
+            conclusions.append(f"- ⚠️ **空腹血糖**: {report_type}{high_days}天偏高, 平均值{analysis['fasting_avg']:.2f}超正常范围, 建议控制晚餐和夜宵")
+        elif analysis['fasting_rate'] >= 80:
+            conclusions.append(f"- ✅ **空腹血糖**: 平均值{analysis['fasting_avg']:.2f}在正常范围, 达标率{analysis['fasting_rate']:.1f}%, 表现良好")
+        else:
+            conclusions.append(f"- ✅ **空腹血糖**: 平均值{analysis['fasting_avg']:.2f}在正常范围, 达标率{analysis['fasting_rate']:.1f}%")
+
+    # 餐后血糖分析
+    if analysis['post_meal_count'] > 0:
+        if analysis['post_meal_avg'] > 7.8:
+            conclusions.append(f"- ⚠️ **餐后血糖**: 平均值{analysis['post_meal_avg']:.2f}偏高, 建议减少碳水摄入")
+        else:
+            conclusions.append(f"- ✅ **餐后血糖**: 平均值{analysis['post_meal_avg']:.2f}在正常范围")
+    else:
+        conclusions.append(f"- ℹ️ **餐后2h血糖**: {report_type}未记录, 建议开始监测餐后血糖")
+
+    # 睡前血糖分析
+    if analysis['bedtime_count'] > 0:
+        if analysis['bedtime_avg'] > 7.8:
+            conclusions.append(f"- ❌ **睡前血糖**: 全部{analysis['bedtime_count']}天均偏高, 平均值{analysis['bedtime_avg']:.2f}远超正常范围, 需要重点关注!")
+            conclusions.append(f"  - 建议晚餐后适当散步运动")
+            conclusions.append(f"  - 检查晚餐饮食结构, 减少高碳水食物")
+            conclusions.append(f"  - 咨询医生是否需要调整用药方案")
+        else:
+            conclusions.append(f"- ✅ **睡前血糖**: 平均值{analysis['bedtime_avg']:.2f}在正常范围")
+
+    return "\n".join(conclusions) if conclusions else ""
+
+
+def analyze_consumption_categories(consumption_data: list, total_transactions: int) -> dict:
+    """分析消费类别分布"""
+    categories = defaultdict(lambda: {'count': 0, 'amount': 0})
+
+    for d in consumption_data:
+        category = d.get('main_category', '')
+        count = d.get('count', 0)
+        total = d.get('total', 0)
+        if category and count > 0:
+            categories[category]['count'] += count
+            categories[category]['amount'] += total
+
+    result = {}
+    for cat, data in categories.items():
+        result[cat] = {
+            'count': data['count'],
+            'amount': data['amount'],
+            'percentage': (data['count'] / total_transactions * 100) if total_transactions > 0 else 0
+        }
+
+    return result
+
+
+def generate_daily_consumption_details(consumption_data: list, blood_sugar_data: list) -> tuple:
+    """生成逐日消费明细"""
+    lines = ["\n### 逐日消费明细\n"]
+    lines.append("| 日期 | 星期 | 消费笔数 | 总支出 | 主要消费 |")
+    lines.append("|:---:|:---:|:---:|:---:|:---|")
+
+    weekdays = ['一', '二', '三', '四', '五', '六', '日']
+
+    # 创建日期映射
+    date_map = {}
+    for d in blood_sugar_data:
+        date_map[d['date']] = d
+
+    for i, d in enumerate(consumption_data):
+        date = date_map.get(d['date'], {}).get('date', f'第{i+1}天')
+        date_str = date[-5:] if len(date) > 5 else date  # 取 MM-DD 部分
+
+        # 计算星期
+        try:
+            from datetime import datetime
+            dt = datetime.strptime(date, '%Y-%m-%d')
+            weekday = weekdays[dt.weekday()]
+        except:
+            weekday = '-'
+
+        count = d.get('count', 0)
+        total = d.get('total', 0)
+        category = d.get('main_category', '无')
+
+        lines.append(f"| {date_str} | {weekday} | {count} 笔 | {total:.2f}元 | {category} |")
+
+    return "\n".join(lines), len(consumption_data)
+
+
+def generate_consumption_analysis(consumption_data: list, categories: dict) -> str:
+    """生成消费详细分析"""
+    lines = ["\n### 消费分析\n"]
+
+    # 找出大额支出
+    large_expenses = []
+    for d in consumption_data:
+        total = d.get('total', 0)
+        if total > 100:  # 单日超过100元视为大额支出
+            date = d.get('date', '')
+            large_expenses.append((date, total))
+
+    if large_expenses:
+        lines.append("**大额支出**:")
+        for date, amount in sorted(large_expenses, key=lambda x: x[1], reverse=True)[:5]:
+            lines.append(f"  - {date}: {amount:.2f}元")
+        lines.append("")
+
+    # 餐饮消费分析
+    dining_data = categories.get('餐饮', {})
+    if dining_data.get('count', 0) > 0:
+        dining_amount = dining_data.get('amount', 0)
+        lines.append(f"**餐饮消费**: 本周餐饮{dining_data['count']}笔, 共约{dining_amount:.0f}元, 日均餐饮{dining_amount/7:.0f}元")
+        lines.append("")
+
+    # 建议部分
+    lines.append("**建议**:")
+    avg_daily = sum(d.get('total', 0) for d in consumption_data) / len(consumption_data) if consumption_data else 0
+
+    if avg_daily > 150:
+        lines.append(f"  - 日均消费{avg_daily:.2f}元偏高, 建议适当控制非必要支出")
+    else:
+        lines.append(f"  - 日均消费{avg_daily:.2f}元合理, 继续保持")
+
+    main_category = max(categories.items(), key=lambda x: x[1]['count'])[0] if categories else '无'
+    lines.append(f"  - 主要消费类别为{main_category}, 可关注该类别的支出优化")
+
+    return "\n".join(lines)
+
+
+def extract_task_achievements(task_data: list, blood_sugar_data: list) -> dict:
+    """提取主要成就和未完成任务"""
+    completed = []
+    uncompleted = []
+
+    # 创建日期映射
+    date_map = {}
+    for d in blood_sugar_data:
+        date_map[d['date']] = d
+
+    for i, d in enumerate(task_data):
+        work_completed = d.get('work_completed', 0)
+        work_total = d.get('work_total', 0)
+        date = date_map.get(d.get('date', ''), {}).get('date', f'第{i+1}天')
+
+        if work_total > 0 and work_completed == work_total:
+            completed.append(date)
+        elif work_completed < work_total:
+            uncompleted.append(date)
+
+    return {'completed_days': completed, 'uncompleted_days': uncompleted}
+
+
 def generate_charts_svg(blood_sugar_data: list, consumption_data: list,
                        task_data: list, year: int, month: int, week: int,
                        report_type: str, output_dir: Path,
@@ -714,15 +904,38 @@ def generate_weekly_report(year: int, month: int, week: int, data: list,
     """
     生成周报表
     """
-    blood_sugar_data = [{'date': d['date'], **parse_blood_sugar(d['content'])} for d in data]
-    consumption_data = [parse_consumption(d['content']) for d in data]
-    task_data = [parse_task_completion(d['content']) for d in data]
-    sleep_data = [parse_sleep_quality(d['content']) for d in data]
+    # 为每个数据项添加 date 字段
+    enriched_data = []
+    for d in data:
+        d_copy = d.copy()
+        # 确保 blood_sugar_data 也有 date 字段
+        enriched_data.append(d_copy)
+
+    blood_sugar_data = [{'date': d['date'], **parse_blood_sugar(d['content'])} for d in enriched_data]
+    consumption_data = []
+    for d in enriched_data:
+        parsed = parse_consumption(d['content'])
+        parsed['date'] = d['date']
+        consumption_data.append(parsed)
+    task_data = []
+    for d in enriched_data:
+        parsed = parse_task_completion(d['content'])
+        parsed['date'] = d['date']
+        task_data.append(parsed)
+    sleep_data = [parse_sleep_quality(d['content']) for d in enriched_data]
 
     blood_analysis = analyze_blood_sugar_trend(blood_sugar_data)
     consumption_analysis = analyze_consumption_trend(consumption_data)
     goal_analysis = analyze_goal_completion(task_data)
     sleep_analysis = analyze_sleep_quality(sleep_data)
+
+    # 生成详细分析内容
+    daily_blood_sugar = generate_daily_blood_sugar_details(blood_sugar_data)
+    blood_sugar_conclusion = generate_blood_sugar_conclusion(blood_analysis, "本周")
+    consumption_categories = analyze_consumption_categories(consumption_data, consumption_analysis['total_transactions'])
+    daily_consumption, consumption_days = generate_daily_consumption_details(consumption_data, blood_sugar_data)
+    consumption_detailed_analysis = generate_consumption_analysis(consumption_data, consumption_categories)
+    task_achievements = extract_task_achievements(task_data, blood_sugar_data)
 
     # 生成图表
     chart_paths = {}
@@ -750,6 +963,15 @@ def generate_weekly_report(year: int, month: int, week: int, data: list,
             if 'task_completion_rate' in chart_paths:
                 charts_section += f'### 任务完成率趋势\n\n![任务完成率]({Path(chart_paths["task_completion_rate"]).name})\n\n'
 
+    # 构建消费类别分布表格
+    category_dist_section = ""
+    if consumption_categories:
+        category_dist_section = "\n### 消费类别分布\n\n"
+        category_dist_section += "| 类别 | 笔数 | 占比 |\n"
+        category_dist_section += "|:---:|:---:|:---:|\n"
+        for cat, info in sorted(consumption_categories.items(), key=lambda x: x[1]['count'], reverse=True):
+            category_dist_section += f"| {cat} | {info['count']} 笔 | {info['percentage']:.1f}% |\n"
+
     # 开始构建报表
     report = f"""---
 title: 第{week}周统计报表
@@ -766,6 +988,61 @@ period: {year}年{month}月第{week}周
 - **记录天数**: {len(data)} 天
 - **生成时间**: {datetime.now().strftime('%Y-%m-%d %H:%M')}
 
+---
+
+## 🩸 血糖监测分析
+
+### 空腹血糖 (正常范围: 3.9-6.1 mmol/L)
+
+| 指标 | 数值 |
+|:---|:---:|
+| 📊 平均值 | **{blood_analysis['fasting_avg']:.2f}** mmol/L |
+| ⬇️ 最小值 | {blood_analysis['fasting_min']:.2f} mmol/L |
+| ⬆️ 最大值 | {blood_analysis['fasting_max']:.2f} mmol/L |
+| ✅ 达标率 | **{blood_analysis['fasting_rate']:.1f}%** ({blood_analysis['fasting_in_range']}/{blood_analysis['fasting_count']}天)
+{daily_blood_sugar}
+
+### 餐后2h血糖 (正常范围: 4.4-7.8 mmol/L)
+
+| 指标 | 数值 |
+|:---|:---:|
+| 📊 平均值 | **{blood_analysis['post_meal_avg']:.2f}** mmol/L |
+| ⬇️ 最小值 | {blood_analysis['post_meal_min']:.2f} mmol/L |
+| ⬆️ 最大值 | {blood_analysis['post_meal_max']:.2f} mmol/L |
+| ✅ 达标率 | **{blood_analysis['post_meal_rate']:.1f}%** ({blood_analysis['post_meal_in_range']}/{blood_analysis['post_meal_count']}天)
+
+### 睡前血糖 (正常范围: 4.4-7.8 mmol/L)
+
+| 指标 | 数值 |
+|:---|:---:|
+| 📊 平均值 | **{blood_analysis['bedtime_avg']:.2f}** mmol/L |
+| ⬇️ 最小值 | {blood_analysis['bedtime_min']:.2f} mmol/L |
+| ⬆️ 最大值 | {blood_analysis['bedtime_max']:.2f} mmol/L |
+| ✅ 达标率 | **{blood_analysis['bedtime_rate']:.1f}%** ({blood_analysis['bedtime_in_range']}/{blood_analysis['bedtime_count']}天)
+
+### 血糖趋势分析结论
+
+{blood_sugar_conclusion}
+
+---
+
+## 💰 消费趋势分析
+
+### 消费总览
+
+| 指标 | 数值 |
+|:---|:---:|
+| 💵 总支出 | **{consumption_analysis['total']:.2f}** 元 |
+| 📊 日均消费 | **{consumption_analysis['avg_daily']:.2f}** 元 |
+| 📝 消费笔数 | {consumption_analysis['total_transactions']} 笔 |
+| 📅 有消费天数 | {consumption_analysis['days_with_expense']} 天 |
+| 🔝 单日最高 | {consumption_analysis['max_daily']:.2f} 元 |
+{daily_consumption}
+{category_dist_section}
+{consumption_detailed_analysis}
+
+---
+
 ## 😴 睡眠质量分析
 
 - **睡眠质量分布**: 差 {sleep_analysis['bad_days']} 天 | 一般 {sleep_analysis['normal_days']} 天 | 好 {sleep_analysis['good_days']} 天
@@ -773,102 +1050,91 @@ period: {year}年{month}月第{week}周
 - **最常见质量**: {sleep_analysis['most_common']}
 - **良好睡眠率**: {sleep_analysis['good_sleep_rate']*100:.1f}%
 
-## 🩸 血糖监测分析
+---
 
-### 空腹血糖 (正常范围: 3.9-6.1 mmol/L)
-- **平均值**: {blood_analysis['fasting_avg']:.2f} mmol/L
-- **最小值**: {blood_analysis['fasting_min']:.2f} mmol/L
-- **最大值**: {blood_analysis['fasting_max']:.2f} mmol/L
-- **达标率**: {blood_analysis['fasting_in_range']}/{blood_analysis['fasting_count']} ({blood_analysis['fasting_rate']:.1f}%)
-
-### 餐后2h血糖 (正常范围: 4.4-7.8 mmol/L)
-- **平均值**: {blood_analysis['post_meal_avg']:.2f} mmol/L
-- **最小值**: {blood_analysis['post_meal_min']:.2f} mmol/L
-- **最大值**: {blood_analysis['post_meal_max']:.2f} mmol/L
-- **达标率**: {blood_analysis['post_meal_in_range']}/{blood_analysis['post_meal_count']} ({blood_analysis['post_meal_rate']:.1f}%)
-
-### 睡前血糖 (正常范围: 4.4-7.8 mmol/L)
-- **平均值**: {blood_analysis['bedtime_avg']:.2f} mmol/L
-- **最小值**: {blood_analysis['bedtime_min']:.2f} mmol/L
-- **最大值**: {blood_analysis['bedtime_max']:.2f} mmol/L
-- **达标率**: {blood_analysis['bedtime_in_range']}/{blood_analysis['bedtime_count']} ({blood_analysis['bedtime_rate']:.1f}%)
-
-"""
-
-    if consumption_analysis['has_data']:
-        report += f"""## 💰 消费趋势分析
-
-- **总支出**: 💰 {consumption_analysis['total']:.2f} 元
-- **日均消费**: {consumption_analysis['avg_daily']:.2f} 元
-- **消费笔数**: {consumption_analysis['total_transactions']} 笔
-- **有消费天数**: {consumption_analysis['days_with_expense']} 天
-- **单日最高**: {consumption_analysis['max_daily']:.2f} 元
-- **主要消费类别**: {consumption_analysis['main_category']}
-
-"""
-
-    report += f"""## 🎯 目标完成情况
+## 🎯 目标完成情况
 
 ### 今日计划完成率
-- **计划总数**: {goal_analysis['total_planned']} 项
-- **已完成**: {goal_analysis['total_completed']} 项
-- **完成率**: {goal_analysis['planned_rate']*100:.1f}%
+
+| 指标 | 数值 |
+|:---|:---:|
+| 📋 总计划数 | {goal_analysis['total_planned']} 项 |
+| ✅ 已完成 | {goal_analysis['total_completed']} 项 |
+| ⏳ 未完成 | {goal_analysis['total_planned'] - goal_analysis['total_completed']} 项 |
+| 📊 完成率 | **{goal_analysis['planned_rate']*100:.1f}%** |
 
 ### 工作/学习任务完成率
-- **任务总数**: {goal_analysis['total_work']} 项
-- **已完成**: {goal_analysis['total_work_completed']} 项
-- **完成率**: {goal_analysis['work_rate']*100:.1f}%
+
+| 指标 | 数值 |
+|:---|:---:|
+| 📋 总任务数 | {goal_analysis['total_work']} 项 |
+| ✅ 已完成 | {goal_analysis['total_work_completed']} 项 |
+| ⏳ 未完成 | {goal_analysis['total_work'] - goal_analysis['total_work_completed']} 项 |
+| 📊 完成率 | **{goal_analysis['work_rate']*100:.1f}%** |
 
 {charts_section}
-## 💡 建议与总结
+---
 
-### 健康建议
+## 📝 总结与建议
+
+### 本周总结
+
+**健康方面**:
 """
 
+    # 添加睡眠质量总结
     if sleep_analysis['bad_rate'] >= 0.5:
-        report += f"- 睡眠质量需要改善，本周{sleep_analysis['bad_days']}天睡眠较差，建议调整作息时间\n"
-    elif sleep_analysis['bad_rate'] > 0.2:
-        report += f"- 本周有{sleep_analysis['bad_days']}天睡眠较差，注意休息和压力管理\n"
+        report += f"- ⚠️ 睡眠质量较差，本周{sleep_analysis['bad_days']}天睡眠差，需要改善\n"
+    elif sleep_analysis['bad_rate'] > 0:
+        report += f"- ⚠️ 本周有{sleep_analysis['bad_days']}天睡眠较差，需要关注\n"
     elif sleep_analysis['good_days'] == sleep_analysis['total_days'] and sleep_analysis['total_days'] > 0:
-        report += "- 本周每天睡眠质量都很好，继续保持！\n"
-    elif sleep_analysis['avg_quality'] >= 2:
-        report += f"- 平均睡眠质量{sleep_analysis['avg_quality']:.1f}分（满分3分），整体表现良好\n"
+        report += "- ✅ 本周每天睡眠质量都很好，继续保持！\n"
 
-    if blood_analysis['fasting_avg'] > 6.1:
-        report += "- 空腹血糖偏高，建议控制晚餐和夜间饮食\n"
-    elif blood_analysis['fasting_avg'] > 0:
-        report += f"- 空腹血糖平均值 {blood_analysis['fasting_avg']:.2f} mmol/L，"
-        if blood_analysis['fasting_avg'] <= 6.1:
-            report += "在正常范围内，继续保持\n"
+    # 添加血糖总结
+    if blood_analysis['fasting_avg'] > 0:
+        if blood_analysis['fasting_avg'] <= 6.1 and blood_analysis['fasting_rate'] >= 80:
+            report += f"- ✅ 空腹血糖整体控制良好，平均值{blood_analysis['fasting_avg']:.2f}在正常范围\n"
+        elif blood_analysis['fasting_avg'] > 6.1:
+            report += f"- ⚠️ 空腹血糖平均值{blood_analysis['fasting_avg']:.2f}偏高，需要注意\n"
 
-    if blood_analysis['post_meal_avg'] > 7.8:
-        report += "- 餐后血糖偏高，建议减少碳水化合物摄入\n"
-    elif blood_analysis['post_meal_avg'] > 0:
-        report += f"- 餐后血糖平均值 {blood_analysis['post_meal_avg']:.2f} mmol/L，"
-        if blood_analysis['post_meal_avg'] <= 7.8:
-            report += "在正常范围内\n"
+    if blood_analysis['bedtime_count'] > 0 and blood_analysis['bedtime_avg'] > 7.8:
+        report += f"- ❌ 睡前血糖持续偏高（平均值{blood_analysis['bedtime_avg']:.2f}），需要重点关注\n"
+    elif blood_analysis['bedtime_count'] > 0:
+        report += f"- ✅ 睡前血糖平均值{blood_analysis['bedtime_avg']:.2f}在正常范围\n"
 
-    if blood_analysis['bedtime_avg'] > 7.8:
-        report += "- 睡前血糖偏高，建议控制晚间饮食\n"
-    elif blood_analysis['bedtime_avg'] > 0:
-        report += f"- 睡前血糖平均值 {blood_analysis['bedtime_avg']:.2f} mmol/L，"
-        if blood_analysis['bedtime_avg'] <= 7.8:
-            report += "在正常范围内\n"
-
+    report += "\n**财务方面**:\n"
     if consumption_analysis['has_data']:
-        report += "\n### 消费建议\n"
-        if consumption_analysis['avg_daily'] > 100:
-            report += f"- 日均消费 {consumption_analysis['avg_daily']:.2f} 元，建议适当控制支出\n"
-        report += f"- 主要消费类别为 {consumption_analysis['main_category']}，可关注该类别的支出优化\n"
+        report += f"- 本周总支出{consumption_analysis['total']:.2f}元，日均{consumption_analysis['avg_daily']:.2f}元\n"
+        if consumption_analysis['avg_daily'] <= 150:
+            report += "- 消费水平合理，继续保持\n"
 
-    report += "\n### 目标达成建议\n"
-    if goal_analysis['planned_rate'] < 0.8:
-        report += f"- 今日计划完成率 {goal_analysis['planned_rate']*100:.1f}%，建议合理规划每日任务\n"
+    report += "\n**工作方面**:\n"
+    if goal_analysis['work_rate'] >= 0.8:
+        report += f"- ✅ 本周工作完成率较高（{goal_analysis['work_rate']*100:.1f}%），任务进展顺利\n"
+    else:
+        report += f"- ⚠️ 工作完成率{goal_analysis['work_rate']*100:.1f}%，需要调整工作节奏\n"
+
+    report += "\n### 下周建议\n\n"
+    report += "1. **健康改善**:\n"
+
+    if sleep_analysis['bad_rate'] > 0.3:
+        report += "   - 改善睡眠质量，调整作息时间\n"
+
+    if blood_analysis['fasting_avg'] > 6.1 or blood_analysis['bedtime_avg'] > 7.8:
+        report += "   - 控制晚餐时间和份量，避免血糖过高\n"
+        report += "   - 晚餐后进行30分钟轻度运动\n"
+
+    report += "\n2. **财务管理**:\n"
+    if consumption_analysis['has_data']:
+        if consumption_analysis['avg_daily'] > 150:
+            report += "   - 适当控制非必要支出\n"
+        report += f"   - 关注主要消费类别（{consumption_analysis['main_category']}）的支出优化\n"
+
+    report += "\n3. **工作计划**:\n"
     if goal_analysis['work_rate'] < 0.8:
-        report += f"- 工作学习完成率 {goal_analysis['work_rate']*100:.1f}%，建议调整工作节奏\n"
-
-    if goal_analysis['planned_rate'] >= 0.8 and goal_analysis['work_rate'] >= 0.8:
-        report += "- 各项任务完成情况良好，继续保持！\n"
+        report += "   - 合理规划任务，提高工作完成率\n"
+    else:
+        report += "   - 继续保持良好的工作状态\n"
 
     report += "\n---\n*本报表由周期统计报表生成器自动生成*"
 

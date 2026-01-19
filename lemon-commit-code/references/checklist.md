@@ -144,3 +144,4 @@ public UserController(UserService userService) {
 - ❌ IDE 配置（.idea、*.iml）
 - ❌ 本地配置文件（application-local.yml）
 - ❌ 无意义提交（"fix"、"update"）
+- ❌ AI 工具署名信息（Co-Authored-By、Generated with）

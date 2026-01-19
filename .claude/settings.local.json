@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(robocopy:*)",
+      "Bash(exit:*)",
+      "Bash(powershell -Command \"Copy-Item -Path ''artifacts-builder'' -Destination ''C:/Users/lengm/.claude/skills/artifacts-builder'' -Recurse -Force\")",
+      "Bash(powershell -Command \"Copy-Item -Path ''ascii-chart-to-svg'' -Destination ''C:/Users/lengm/.claude/skills/ascii-chart-to-svg'' -Recurse -Force\")",
+      "Bash(powershell -Command \"Copy-Item -Path ''canvas-design'' -Destination ''C:/Users/lengm/.claude/skills/canvas-design'' -Recurse -Force\")",
+      "Bash(powershell -Command:*)"
+    ]
+  }
+}

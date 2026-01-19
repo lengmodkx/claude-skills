@@ -86,51 +86,25 @@ def parse_ascii_chart(text: str) -> ChartData:
                     if char in ['█', '▀', '■', '#']:
                         data_marks.append((pos, y_val))
 
-    # 根据X轴标签位置进行聚类
+    # 根据X轴标签位置进行聚类 - 改进的算法
     if x_labels and data_marks:
-        # 获取X轴标签在标签行中的位置
-        label_line_idx = x_axis_line_idx + 1 if x_axis_line_idx + 1 < len(lines) else x_axis_line_idx
-        label_line = lines[label_line_idx]
+        num_labels = len(x_labels)
+        # 计算数据区域宽度
+        content_start = split_pos + 1 if split_pos >= 0 else 0
+        content_width = len(x_axis_line) - content_start
 
-        label_positions = []
-        for label in x_labels:
-            # 在标签行中查找标签位置
-            label_pos = label_line.find(label)
-            if label_pos != -1:
-                label_positions.append(label_pos)
+        # 使用等间距分布来分配数据点
+        column_width = content_width / num_labels if num_labels > 0 else 1
 
-        # 如果找不到标签位置,使用X轴行
-        if not label_positions:
-            for label in x_labels:
-                label_pos = x_axis_line.find(label)
-                if label_pos != -1:
-                    label_positions.append(label_pos)
+        data_points = [None] * num_labels
 
-        # 如果还是找不到,使用均匀分布
-        if not label_positions:
-            num_labels = len(x_labels)
-            step = len(x_axis_line) // (num_labels + 1)
-            label_positions = [step * (i + 1) for i in range(num_labels)]
-
-        # 为每个标签分配数据点
-        data_points = [None] * len(x_labels)
-
-        # 对于每个数据标记,找到最近的标签
         for mark_pos, mark_val in data_marks:
-            # 找到最近的标签索引
-            min_dist = float('inf')
-            closest_label_idx = -1
-
-            for i, label_pos in enumerate(label_positions):
-                dist = abs(mark_pos - label_pos)
-                if dist < min_dist:
-                    min_dist = dist
-                    closest_label_idx = i
-
-            # 如果距离足够近,分配给该标签
-            if closest_label_idx >= 0 and min_dist < 30:  # 阈值可调整
-                if data_points[closest_label_idx] is None or mark_val > data_points[closest_label_idx]:
-                    data_points[closest_label_idx] = mark_val
+            # 根据位置计算对应的标签索引
+            label_idx = int(mark_pos / column_width)
+            if 0 <= label_idx < num_labels:
+                # 使用最大值（同一列可能有多个标记）
+                if data_points[label_idx] is None or mark_val > data_points[label_idx]:
+                    data_points[label_idx] = mark_val
     else:
         # 没有X轴标签时的处理
         data_points = [val for _, val in data_marks] if data_marks else []
@@ -186,6 +160,7 @@ def generate_svg(chart: ChartData, width: int = 800, height: int = 400) -> str:
     svg_parts.append('  <style>')
     svg_parts.append('    .title { font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; }')
     svg_parts.append('    .axis-label { font-family: Arial, sans-serif; font-size: 12px; fill: #666; }')
+    svg_parts.append('    .value-label { font-family: Arial, sans-serif; font-size: 11px; fill: #333; font-weight: bold; }')
     svg_parts.append('    .grid-line { stroke: #e0e0e0; stroke-width: 1; }')
     svg_parts.append('    .axis-line { stroke: #333; stroke-width: 1.5; }')
     svg_parts.append('    .bar { fill: #4CAF50; stroke: #45a049; stroke-width: 1; }')
@@ -229,10 +204,16 @@ def generate_svg(chart: ChartData, width: int = 800, height: int = 400) -> str:
             svg_parts.append(f'    <title>{chart.x_labels[i] if i < len(chart.x_labels) else i+1}: {value}</title>')
             svg_parts.append('  </rect>')
 
-    # X轴标签
-    for i, label in enumerate(chart.x_labels[:num_points]):
+            # 添加数值标签在柱子顶部
+            label_y = y_pos - 5
+            svg_parts.append(f'  <text x="{x_pos + bar_width/2}" y="{label_y}" '
+                           f'text-anchor="middle" class="value-label">{value:.1f}</text>')
+
+    # X轴标签 - 显示所有标签
+    for i, label in enumerate(chart.x_labels):
         x_pos = margin_left + (i + 1) * x_step
-        svg_parts.append(f'  <text x="{x_pos}" y="{height - margin_bottom + 20}" text-anchor="middle" class="axis-label">{label}</text>')
+        svg_parts.append(f'  <text x="{x_pos}" y="{height - margin_bottom + 20}" '
+                        f'text-anchor="middle" class="axis-label">{label}</text>')
 
     svg_parts.append('</svg>')
 
