@@ -148,28 +148,31 @@ def build_blood_sugar_ascii(title: str, data: dict) -> str:
     y_range = y_max - y_min
     y_increment = y_range / (y_steps - 1) if y_steps > 1 else 1
 
-    # 构建空腹血糖图表
+    # 构建空腹血糖图表 - 数据和Y轴标签在同一行
     chart_lines = []
     chart_lines.append(f"{title}:")
-
-    # Y轴刻度和数据 - 使用固定宽度对齐
-    col_width = 4  # 每列宽度
 
     for i in range(y_steps):
         y_val = y_max - (i * y_increment)
         y_label = f"{y_val:5.1f} ┤"
 
-        # 为每个数据点生成对应的位置
+        # 为每个数据点生成对应的位置 - 数据在同一行
         line_parts = [y_label]
         for j, val in enumerate(fasting_data):
-            if val is not None and abs(val - y_val) < y_increment / 2:
-                line_parts.append(" █ ")  # 使用固定宽度
+            if val is not None:
+                # 找到最近的Y轴刻度索引
+                closest_y_idx = round((y_max - val) / y_increment)
+                closest_y_idx = max(0, min(closest_y_idx, y_steps - 1))
+                if closest_y_idx == i:
+                    line_parts.append(" █ ")
+                else:
+                    line_parts.append("   ")
             else:
                 line_parts.append("   ")
 
         chart_lines.append("".join(line_parts))
 
-    # X轴标签也使用固定宽度对齐
+    # X轴标签
     x_axis_line = "     ┼" + "───" * len(labels)
     chart_lines.append(x_axis_line)
 
@@ -187,19 +190,24 @@ def build_blood_sugar_ascii(title: str, data: dict) -> str:
         y_val = y_max - (i * y_increment)
         y_label = f"{y_val:.1f}"
 
-        # 睡前血糖数据点
+        # 睡前血糖数据点 - 同一行
         line = f"{y_label:5s} ┤"
         for j, val in enumerate(bedtime_data):
-            if val is not None and abs(val - y_val) < y_increment / 2:
-                line += "  █"
+            if val is not None:
+                closest_y_idx = round((y_max - val) / y_increment)
+                closest_y_idx = max(0, min(closest_y_idx, y_steps - 1))
+                if closest_y_idx == i:
+                    line += " █ "
+                else:
+                    line += "   "
             else:
-                line += "  "
+                line += "   "
 
         chart_lines.append(line)
 
     # X轴
-    chart_lines.append("     ┼" + "─" * (len(labels) * 3))
-    chart_lines.append("      " + "  ".join(f"{l:2s}" for l in labels) + " (日期)")
+    chart_lines.append("     ┼" + "───" * len(labels))
+    chart_lines.append("      " + "  ".join(f"{l:>2s}" for l in labels) + " (日期)")
 
     return "\n".join(chart_lines)
 
@@ -222,7 +230,7 @@ def build_consumption_ascii(title: str, data: dict) -> str:
     y_steps = 7
     y_increment = y_max / (y_steps - 1) if y_steps > 1 else 50
 
-    # 构建图表
+    # 构建图表 - 数据和Y轴标签在同一行
     chart_lines = []
     chart_lines.append(f"{title}:")
 
@@ -232,16 +240,22 @@ def build_consumption_ascii(title: str, data: dict) -> str:
 
         line = f"{y_label:>4s} ┤"
         for j, val in enumerate(values):
-            if val is not None and abs(val - y_val) < y_increment / 2:
-                line += "  █"
+            if val is not None:
+                # 找到最近的Y轴刻度
+                closest_y_idx = round((y_max - val) / y_increment)
+                closest_y_idx = max(0, min(closest_y_idx, y_steps - 1))
+                if closest_y_idx == i:
+                    line += " █ "
+                else:
+                    line += "   "
             else:
-                line += "  "
+                line += "   "
 
         chart_lines.append(line)
 
     # X轴
-    chart_lines.append("    0 ┼" + "─" * (len(labels) * 3))
-    chart_lines.append("      " + "  ".join(f"{l:2s}" for l in labels) + " (日期)")
+    chart_lines.append("    0 ┼" + "───" * len(labels))
+    chart_lines.append("      " + "  ".join(f"{l:>2s}" for l in labels) + " (日期)")
 
     return "\n".join(chart_lines)
 
@@ -264,7 +278,7 @@ def build_task_completion_ascii(title: str, data: dict) -> str:
     y_steps = 6
     y_increment = y_max / (y_steps - 1)
 
-    # 构建今日计划完成率图表
+    # 构建今日计划完成率图表 - 数据和Y轴标签在同一行
     chart_lines = []
     chart_lines.append(f"{title} - 今日计划:")
 
@@ -274,16 +288,22 @@ def build_task_completion_ascii(title: str, data: dict) -> str:
 
         line = f"{y_label:>3s}% ┤"
         for j, val in enumerate(planned_data):
-            if val is not None and abs(val - y_val) < y_increment / 2:
-                line += "  █"
+            if val is not None:
+                # 找到最近的Y轴刻度
+                closest_y_idx = round((y_max - val) / y_increment)
+                closest_y_idx = max(0, min(closest_y_idx, y_steps - 1))
+                if closest_y_idx == i:
+                    line += " █ "
+                else:
+                    line += "   "
             else:
-                line += "  "
+                line += "   "
 
         chart_lines.append(line)
 
     # X轴
-    chart_lines.append("   0% ┼" + "─" * (len(labels) * 3))
-    chart_lines.append("      " + "  ".join(f"{l:2s}" for l in labels) + " (日期)")
+    chart_lines.append("   0% ┼" + "───" * len(labels))
+    chart_lines.append("      " + "  ".join(f"{l:>2s}" for l in labels) + " (日期)")
 
     chart_lines.append("")
 
@@ -296,16 +316,22 @@ def build_task_completion_ascii(title: str, data: dict) -> str:
 
         line = f"{y_label:>3s}% ┤"
         for j, val in enumerate(work_data):
-            if val is not None and abs(val - y_val) < y_increment / 2:
-                line += "  █"
+            if val is not None:
+                # 找到最近的Y轴刻度
+                closest_y_idx = round((y_max - val) / y_increment)
+                closest_y_idx = max(0, min(closest_y_idx, y_steps - 1))
+                if closest_y_idx == i:
+                    line += " █ "
+                else:
+                    line += "   "
             else:
-                line += "  "
+                line += "   "
 
         chart_lines.append(line)
 
     # X轴
-    chart_lines.append("   0% ┼" + "─" * (len(labels) * 3))
-    chart_lines.append("      " + "  ".join(f"{l:2s}" for l in labels) + " (日期)")
+    chart_lines.append("   0% ┼" + "───" * len(labels))
+    chart_lines.append("      " + "  ".join(f"{l:>2s}" for l in labels) + " (日期)")
 
     return "\n".join(chart_lines)
 

@@ -59,6 +59,7 @@ def parse_ascii_chart(text: str) -> ChartData:
 
     # 收集所有数据标记的位置
     data_marks = []  # (position, y_value)
+    split_pos_ref = None  # 参考的split位置
 
     for i, line in enumerate(lines[1:x_axis_line_idx], 1):
         # 匹配Y轴刻度行: "数值 ┤"
@@ -70,6 +71,10 @@ def parse_ascii_chart(text: str) -> ChartData:
                 break
 
         if split_pos >= 0:
+            # 保存第一个有效的split位置作为参考
+            if split_pos_ref is None:
+                split_pos_ref = split_pos
+
             # 提取Y轴数值
             y_part = line[:split_pos]
             y_match = re.match(r'^\s*([\d\.]+)', y_part)
@@ -81,30 +86,54 @@ def parse_ascii_chart(text: str) -> ChartData:
                 # 获取数据内容部分
                 content = line[split_pos + 1:]
 
+                # 计算相对于参考位置的偏移量，将数据位置转换为与X轴标签相同的坐标系
+                # 假设每列宽度为3个字符，考虑1字符偏移
+                column_width = 3
+
                 # 查找所有█的位置
                 for pos, char in enumerate(content):
                     if char in ['█', '▀', '■', '#']:
-                        data_marks.append((pos, y_val))
+                        # 转换位置：基于列索引，加1偏移校正
+                        col_idx = (pos + 1) // column_width
+                        data_marks.append((col_idx, y_val))
 
-    # 根据X轴标签位置进行聚类 - 改进的算法
+                # 也检查 " █ " 这种格式
+                if ' █ ' in content:
+                    idx = content.find(' █ ')
+                    while idx != -1:
+                        col_idx = (idx + 1) // column_width
+                        data_marks.append((col_idx, y_val))
+                        idx = content.find(' █ ', idx + 1)
+
+    # 根据X轴标签位置进行聚类
     if x_labels and data_marks:
-        num_labels = len(x_labels)
-        # 计算数据区域宽度
-        content_start = split_pos + 1 if split_pos >= 0 else 0
-        content_width = len(x_axis_line) - content_start
+        # 获取X轴标签在标签行中的位置
+        label_line_idx = x_axis_line_idx + 1 if x_axis_line_idx + 1 < len(lines) else x_axis_line_idx
+        label_line = lines[label_line_idx]
 
-        # 使用等间距分布来分配数据点
-        column_width = content_width / num_labels if num_labels > 0 else 1
+        label_positions = []
+        for label in x_labels:
+            # 在标签行中查找标签位置，并转换为列索引
+            label_pos = label_line.find(label)
+            if label_pos != -1:
+                # 假设每列宽度为3个字符，转换为列索引
+                col_idx = label_pos // 3
+                label_positions.append(col_idx)
 
-        data_points = [None] * num_labels
+        # 如果找不到标签位置,使用均匀分布
+        if not label_positions or len(label_positions) < len(x_labels) // 2:
+            num_labels = len(x_labels)
+            # 使用列索引均匀分布
+            label_positions = list(range(num_labels))
 
-        for mark_pos, mark_val in data_marks:
-            # 根据位置计算对应的标签索引
-            label_idx = int(mark_pos / column_width)
-            if 0 <= label_idx < num_labels:
-                # 使用最大值（同一列可能有多个标记）
-                if data_points[label_idx] is None or mark_val > data_points[label_idx]:
-                    data_points[label_idx] = mark_val
+        # 为每个标签分配数据点
+        data_points = [None] * len(x_labels)
+
+        # 对于每个数据标记,找到对应的标签（使用列索引直接匹配）
+        for mark_col, mark_val in data_marks:
+            if 0 <= mark_col < len(x_labels):
+                if data_points[mark_col] is None or mark_val > data_points[mark_col]:
+                    data_points[mark_col] = mark_val
     else:
         # 没有X轴标签时的处理
         data_points = [val for _, val in data_marks] if data_marks else []
@@ -160,7 +189,6 @@ def generate_svg(chart: ChartData, width: int = 800, height: int = 400) -> str:
     svg_parts.append('  <style>')
     svg_parts.append('    .title { font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; }')
     svg_parts.append('    .axis-label { font-family: Arial, sans-serif; font-size: 12px; fill: #666; }')
-    svg_parts.append('    .value-label { font-family: Arial, sans-serif; font-size: 11px; fill: #333; font-weight: bold; }')
     svg_parts.append('    .grid-line { stroke: #e0e0e0; stroke-width: 1; }')
     svg_parts.append('    .axis-line { stroke: #333; stroke-width: 1.5; }')
     svg_parts.append('    .bar { fill: #4CAF50; stroke: #45a049; stroke-width: 1; }')
@@ -204,16 +232,10 @@ def generate_svg(chart: ChartData, width: int = 800, height: int = 400) -> str:
             svg_parts.append(f'    <title>{chart.x_labels[i] if i < len(chart.x_labels) else i+1}: {value}</title>')
             svg_parts.append('  </rect>')
 
-            # 添加数值标签在柱子顶部
-            label_y = y_pos - 5
-            svg_parts.append(f'  <text x="{x_pos + bar_width/2}" y="{label_y}" '
-                           f'text-anchor="middle" class="value-label">{value:.1f}</text>')
-
-    # X轴标签 - 显示所有标签
-    for i, label in enumerate(chart.x_labels):
+    # X轴标签
+    for i, label in enumerate(chart.x_labels[:num_points]):
         x_pos = margin_left + (i + 1) * x_step
-        svg_parts.append(f'  <text x="{x_pos}" y="{height - margin_bottom + 20}" '
-                        f'text-anchor="middle" class="axis-label">{label}</text>')
+        svg_parts.append(f'  <text x="{x_pos}" y="{height - margin_bottom + 20}" text-anchor="middle" class="axis-label">{label}</text>')
 
     svg_parts.append('</svg>')
 
