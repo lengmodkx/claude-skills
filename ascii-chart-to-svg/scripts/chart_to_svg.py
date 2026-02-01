@@ -45,6 +45,7 @@ def parse_ascii_chart(text: str) -> ChartData:
     # 先扫描找到X轴底线位置
     x_axis_line_idx = -1
     x_axis_line = ""
+    x_label_line_idx = -1
 
     for i, line in enumerate(lines[1:], 1):
         if any(c in line for c in ['┼', '━', '─']):
@@ -52,6 +53,7 @@ def parse_ascii_chart(text: str) -> ChartData:
             x_axis_line = line
             # 提取X轴标签(在下一行)
             if i + 1 < len(lines):
+                x_label_line_idx = i + 1
                 x_line = lines[i + 1]
                 # 提取数字标签
                 x_labels = re.findall(r'\d+', x_line)
@@ -60,6 +62,7 @@ def parse_ascii_chart(text: str) -> ChartData:
     # 收集所有数据标记的位置
     data_marks = []  # (position, y_value)
     split_pos_ref = None  # 参考的split位置
+    column_width = 3  # 每列宽度固定为3个字符
 
     for i, line in enumerate(lines[1:x_axis_line_idx], 1):
         # 匹配Y轴刻度行: "数值 ┤"
@@ -86,57 +89,70 @@ def parse_ascii_chart(text: str) -> ChartData:
                 # 获取数据内容部分
                 content = line[split_pos + 1:]
 
-                # 计算相对于参考位置的偏移量，将数据位置转换为与X轴标签相同的坐标系
-                # 假设每列宽度为3个字符，考虑1字符偏移
-                column_width = 3
-
-                # 查找所有█的位置
-                for pos, char in enumerate(content):
+                # 直接遍历每个字符位置，查找数据标记
+                # 数据标记 " █ " 出现在特定列位置
+                for pos in range(len(content)):
+                    char = content[pos]
                     if char in ['█', '▀', '■', '#']:
-                        # 转换位置：基于列索引，加1偏移校正
+                        # 列索引 = 位置 // 列宽度
+                        col_idx = pos // column_width
+                        data_marks.append((col_idx, y_val))
+
+                # 检查 " █ " 这种格式 - █ 在位置 pos+1
+                for pos in range(len(content) - 2):
+                    if content[pos:pos+3] == ' █ ':
+                        # 数据在中间位置，列索引 = (pos+1) // column_width
                         col_idx = (pos + 1) // column_width
+                        # 找到对应的Y值
                         data_marks.append((col_idx, y_val))
 
-                # 也检查 " █ " 这种格式
-                if ' █ ' in content:
-                    idx = content.find(' █ ')
-                    while idx != -1:
-                        col_idx = (idx + 1) // column_width
-                        data_marks.append((col_idx, y_val))
-                        idx = content.find(' █ ', idx + 1)
+    # 处理X轴标签位置
+    if x_labels and x_label_line_idx > 0:
+        label_line = lines[x_label_line_idx]
 
-    # 根据X轴标签位置进行聚类
-    if x_labels and data_marks:
-        # 获取X轴标签在标签行中的位置
-        label_line_idx = x_axis_line_idx + 1 if x_axis_line_idx + 1 < len(lines) else x_axis_line_idx
-        label_line = lines[label_line_idx]
+        # 重新提取X轴标签和位置
+        x_label_positions = []
+        for match in re.finditer(r'(\d+)', label_line):
+            label = match.group(1)
+            pos = match.start()
+            col_idx = pos // column_width
+            x_label_positions.append((label, col_idx))
 
-        label_positions = []
-        for label in x_labels:
-            # 在标签行中查找标签位置，并转换为列索引
-            label_pos = label_line.find(label)
-            if label_pos != -1:
-                # 假设每列宽度为3个字符，转换为列索引
-                col_idx = label_pos // 3
-                label_positions.append(col_idx)
-
-        # 如果找不到标签位置,使用均匀分布
-        if not label_positions or len(label_positions) < len(x_labels) // 2:
+        # 使用均匀分布作为后备方案
+        if not x_label_positions or len(x_label_positions) < len(x_labels) // 2:
+            # 假设标签均匀分布
             num_labels = len(x_labels)
-            # 使用列索引均匀分布
-            label_positions = list(range(num_labels))
+            x_label_positions = [(x_labels[i], i) for i in range(num_labels)]
 
         # 为每个标签分配数据点
-        data_points = [None] * len(x_labels)
+        # 首先收集每个列索引对应的所有数据点值
+        col_to_values = {}
+        for col_idx, val in data_marks:
+            if col_idx not in col_to_values:
+                col_to_values[col_idx] = []
+            col_to_values[col_idx].append(val)
 
-        # 对于每个数据标记,找到对应的标签（使用列索引直接匹配）
-        for mark_col, mark_val in data_marks:
-            if 0 <= mark_col < len(x_labels):
-                if data_points[mark_col] is None or mark_val > data_points[mark_col]:
-                    data_points[mark_col] = mark_val
+        # 创建数据点数组
+        data_points = []
+        for label, col_idx in x_label_positions:
+            if col_idx in col_to_values:
+                # 取该列的最大值
+                max_val = max(col_to_values[col_idx])
+                data_points.append(max_val)
+            else:
+                data_points.append(None)
+
+        # 更新x_labels为按位置排序的标签
+        x_labels = [label for label, _ in x_label_positions]
+
     else:
         # 没有X轴标签时的处理
-        data_points = [val for _, val in data_marks] if data_marks else []
+        # 使用均匀分布
+        if data_marks:
+            num_points = len(set(col for col, _ in data_marks))
+            data_points = [val for _, val in data_marks] if data_marks else []
+        else:
+            data_points = []
 
     return ChartData(
         title=title,

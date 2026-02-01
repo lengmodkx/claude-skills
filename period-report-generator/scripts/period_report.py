@@ -443,15 +443,16 @@ def parse_task_completion(content: str) -> dict:
     return result
 
 
-def find_diary_files(base_dir: Path, year: int, month: int, week: int = None) -> list:
+def find_diary_files(base_dir: Path, year: int, month: int, week: int = None, end_month: int = None) -> list:
     """
     查找指定时间范围的日记文件
 
     Args:
         base_dir: 日记基础目录
         year: 年份
-        month: 月份
+        month: 月份（起始月份）
         week: 周数（可选）
+        end_month: 结束月份（用于跨月周报）
 
     Returns:
         日记文件路径列表
@@ -462,41 +463,63 @@ def find_diary_files(base_dir: Path, year: int, month: int, week: int = None) ->
                       '七月', '八月', '九月', '十月', '十一月', '十二月']
 
     month_cn = chinese_months[month - 1] if 1 <= month <= 12 else f"{month}月"
+    end_month_cn = chinese_months[end_month - 1] if end_month and 1 <= end_month <= 12 else f"{end_month}月" if end_month else None
 
-    if week:
-        week_dir_names = [
-            f"第{week}周",
-            f"第{week:02d}周",
-            f"{week}周",
-            f"{week:02d}周",
-            "第一周" if week == 1 else f"第{week}周",
-            "第二周" if week == 2 else f"第{week}周",
-            "第三周" if week == 3 else f"第{week}周",
-            "第四周" if week == 4 else f"第{week}周",
-            "第五周" if week == 5 else f"第{week}周",
-        ]
+    # 周目录名称变体
+    week_dir_names = [
+        f"第{week}周",
+        f"第{week:02d}周",
+        f"{week}周",
+        f"{week:02d}周",
+        "第一周" if week == 1 else f"第{week}周",
+        "第二周" if week == 2 else f"第{week}周",
+        "第三周" if week == 3 else f"第{week}周",
+        "第四周" if week == 4 else f"第{week}周",
+        "第五周" if week == 5 else f"第{week}周",
+        "第六周" if week == 6 else f"第{week}周",
+    ]
+    week_dir_names = list(set(week_dir_names))
 
-        week_dir_names = list(set(week_dir_names))
-
+    def search_week_dir(month_dir: Path) -> list:
+        """在指定月份目录中搜索周目录"""
+        found_files = []
         for week_name in week_dir_names:
-            week_dir = base_dir / f"日记/{year}年/{month_cn}/{week_name}"
+            week_dir = month_dir / week_name
             if week_dir.exists() and week_dir.is_dir():
                 for md_file in week_dir.glob("*.md"):
                     if '统计报表' not in md_file.name and '周报' not in md_file.name:
-                        diary_files.append(md_file)
-                if diary_files:
+                        found_files.append(md_file)
+                if found_files:
                     break
+        return found_files
 
-        if not diary_files:
-            for week_name in week_dir_names:
-                week_dir = base_dir / f"日记/{year}年/{month}月/{week_name}"
-                if week_dir.exists() and week_dir.is_dir():
-                    for md_file in week_dir.glob("*.md"):
-                        if '统计报表' not in md_file.name and '周报' not in md_file.name:
-                            diary_files.append(md_file)
-                    if diary_files:
-                        break
+    if week:
+        # 优先搜索起始月份
+        month_dirs_to_search = []
+
+        # 起始月份目录
+        month_dirs_to_search.append((f"{year}年/{month_cn}", base_dir / f"日记/{year}年/{month_cn}"))
+        month_dirs_to_search.append((f"{year}年/{month}月", base_dir / f"日记/{year}年/{month}月"))
+
+        # 如果跨月，添加结束月份目录
+        if end_month and end_month != month:
+            month_dirs_to_search.append((f"{year}年/{end_month_cn}", base_dir / f"日记/{year}年/{end_month_cn}"))
+            month_dirs_to_search.append((f"{year}年/{end_month}月", base_dir / f"日记/{year}年/{end_month}月"))
+
+        # 也尝试下一年的一月（用于处理年末跨年情况）
+        if month == 12 and (not end_month or end_month == 1):
+            next_year = year + 1
+            month_dirs_to_search.append((f"{next_year}年/一月", base_dir / f"日记/{next_year}年/一月"))
+            month_dirs_to_search.append((f"{next_year}年/1月", base_dir / f"日记/{next_year}年/1月"))
+
+        for dir_desc, month_dir in month_dirs_to_search:
+            if month_dir.exists() and month_dir.is_dir():
+                diary_files = search_week_dir(month_dir)
+                if diary_files:
+                    print(f"📁 从 {dir_desc} 找到日记文件")
+                    break
     else:
+        # 月报模式
         month_dirs = [
             base_dir / f"日记/{year}年/{month_cn}",
             base_dir / f"日记/{year}年/{month}月",
@@ -1345,6 +1368,8 @@ def main():
                         help='年份 (默认为当前年)')
     parser.add_argument('--month', '-m', type=int, default=datetime.now().month,
                         help='月份 (默认为当前月)')
+    parser.add_argument('--end-month', '-e', type=int,
+                        help='结束月份 (跨月周报时使用，如1月最后一周跨到2月)')
     parser.add_argument('--week', '-w', type=int,
                         help='周数 (周报时必需)')
     parser.add_argument('--base-dir', '-b', default='.', help='日记基础目录')
@@ -1360,7 +1385,7 @@ def main():
 
     base_dir = Path(args.base_dir)
 
-    diary_files = find_diary_files(base_dir, args.year, args.month, args.week)
+    diary_files = find_diary_files(base_dir, args.year, args.month, args.week, args.end_month)
 
     if not diary_files:
         print(f"❌ 未找到 {args.year}年{args.month}月", end='')
