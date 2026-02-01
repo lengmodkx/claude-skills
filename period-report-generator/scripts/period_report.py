@@ -489,12 +489,13 @@ def find_diary_files(base_dir: Path, year: int, month: int, week: int = None, en
                 for md_file in week_dir.glob("*.md"):
                     if '统计报表' not in md_file.name and '周报' not in md_file.name:
                         found_files.append(md_file)
-                if found_files:
-                    break
         return found_files
 
     if week:
-        # 优先搜索起始月份
+        # 收集所有月份的日记文件
+        all_diary_files = []
+
+        # 要搜索的月份目录
         month_dirs_to_search = []
 
         # 起始月份目录
@@ -512,12 +513,15 @@ def find_diary_files(base_dir: Path, year: int, month: int, week: int = None, en
             month_dirs_to_search.append((f"{next_year}年/一月", base_dir / f"日记/{next_year}年/一月"))
             month_dirs_to_search.append((f"{next_year}年/1月", base_dir / f"日记/{next_year}年/1月"))
 
+        # 搜索所有月份并合并结果
         for dir_desc, month_dir in month_dirs_to_search:
             if month_dir.exists() and month_dir.is_dir():
-                diary_files = search_week_dir(month_dir)
-                if diary_files:
-                    print(f"📁 从 {dir_desc} 找到日记文件")
-                    break
+                files = search_week_dir(month_dir)
+                if files:
+                    print(f"📁 从 {dir_desc} 找到 {len(files)} 个日记文件")
+                    all_diary_files.extend(files)
+
+        diary_files = sorted(all_diary_files)
     else:
         # 月报模式
         month_dirs = [
