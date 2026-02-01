@@ -57,40 +57,42 @@ def generate_chart_svg(chart_type: str, title: str, data: dict,
         print("⚠️  未找到 chart_to_svg 脚本")
         return False
 
-    # 构建ASCII图表文本
-    ascii_chart = build_ascii_chart(chart_type, title, data)
-
     try:
         print(f"📊 正在生成SVG图表: {title}")
 
-        # 使用临时文件传递数据(避免Windows stdin编码问题)
-        import tempfile
-        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as f:
-            temp_file = f.name
-            f.write(ascii_chart)
+        # 构建JSON数据格式
+        chart_data = json.loads(build_chart_json(chart_type, title, data))
+
+        # 在输出目录创建临时JSON文件（确保持久存在）
+        json_file = output_path.parent / f"temp_chart_{id(chart_data)}.json"
+
+        with open(json_file, 'w', encoding='utf-8') as f:
+            json.dump(chart_data, f, ensure_ascii=False)
 
         try:
-            # 调用 chart_to_svg 脚本,从临时文件读取
-            with open(temp_file, 'r', encoding='utf-8') as input_file:
-                result = subprocess.run(
-                    [sys.executable, str(script_path), str(output_path)],
-                    stdin=input_file,
-                    capture_output=True,
-                    text=True,
-                    timeout=30  # 30秒超时
-                )
+            # 调用脚本，传递SVG输出路径和JSON文件路径
+            result = subprocess.run(
+                [sys.executable, str(script_path), str(output_path), str(json_file)],
+                capture_output=True,
+                timeout=30
+            )
+
+            stderr_text = result.stderr.decode('utf-8', errors='replace') if result.stderr else ''
+
+            if stderr_text:
+                print(f"📝 脚本输出: {stderr_text}", file=sys.stderr)
 
             if result.returncode == 0 and output_path.exists():
                 print(f"✅ SVG图表已生成: {output_path}")
                 return True
             else:
-                print(f"⚠️  SVG图表生成失败: {result.stderr}")
+                print(f"⚠️  SVG图表生成失败")
                 return False
         finally:
-            # 删除临时文件
+            # 清理临时JSON文件
             try:
-                import os
-                os.unlink(temp_file)
+                if json_file.exists():
+                    json_file.unlink()
             except:
                 pass
 
@@ -100,6 +102,123 @@ def generate_chart_svg(chart_type: str, title: str, data: dict,
     except Exception as e:
         print(f"⚠️  SVG图表生成错误: {e}")
         return False
+
+
+def build_chart_json(chart_type: str, title: str, data: dict) -> str:
+    """
+    构建JSON格式的图表数据
+
+    Args:
+        chart_type: 图表类型
+        title: 图表标题
+        data: 图表数据
+
+    Returns:
+        JSON字符串
+    """
+    import json
+
+    if chart_type == "blood_sugar":
+        # 血糖支持三个数据序列：空腹、餐后、睡前
+        labels = data.get('labels', [])
+        fasting = data.get('fasting', [])
+        post_meal = data.get('post_meal', [])
+        bedtime = data.get('bedtime', [])
+
+        # 收集所有有效值来确定Y轴范围
+        all_values = [v for v in fasting if v is not None] + \
+                     [v for v in post_meal if v is not None] + \
+                     [v for v in bedtime if v is not None]
+
+        if not all_values:
+            return json.dumps({"title": title, "data_points": [], "x_labels": [], "y_values": [], "chart_type": "multi_line"}, ensure_ascii=False)
+
+        # 血糖固定Y轴范围 0-10 mmol/L
+        y_max = 10.0
+        y_min = 0.0
+        y_values = [10.0, 8.0, 6.0, 4.0, 2.0, 0.0]
+        y_labels = ["10", "8", "6", "4", "2", "0"]
+
+        chart_data = {
+            "title": title,
+            "x_labels": labels,
+            "y_values": y_values,
+            "y_labels": y_labels,
+            "chart_type": "multi_line",  # 多序列折线图
+            "series": [
+                {"name": "空腹血糖", "data": fasting, "color": "#2196F3"},
+                {"name": "餐后2h", "data": post_meal, "color": "#4CAF50"},
+                {"name": "睡前血糖", "data": bedtime, "color": "#FF9800"}
+            ],
+            "normal_range": {"min": 3.9, "max": 7.8}  # 正常范围参考
+        }
+
+    elif chart_type == "consumption":
+        labels = data.get('labels', [])
+        values = data.get('values', [])
+
+        if not values:
+            return json.dumps({"title": title, "data_points": [], "x_labels": [], "y_values": [], "chart_type": "line"}, ensure_ascii=False)
+
+        valid_values = [v for v in values if v is not None]
+        if not valid_values:
+            return json.dumps({"title": title, "data_points": [], "x_labels": [], "y_values": [], "chart_type": "line"}, ensure_ascii=False)
+
+        max_val = max(valid_values)
+        y_max = int(max_val / 100 + 1) * 100
+        if y_max < 100:
+            y_max = 100
+        y_min = 0
+        num_steps = 6
+        step = y_max / (num_steps - 1)
+        y_values = [y_max - i * step for i in range(num_steps)]
+        y_labels = [f"{int(y_max - i * step)}" for i in range(num_steps)]
+
+        chart_data = {
+            "title": title,
+            "data_points": values,
+            "x_labels": labels,
+            "y_values": y_values,
+            "y_labels": y_labels,
+            "chart_type": "line"
+        }
+
+    elif chart_type == "task_completion":
+        labels = data.get('labels', [])
+        values = data.get('planned', [])
+
+        if not values:
+            return json.dumps({"title": title, "data_points": [], "x_labels": [], "y_values": [], "chart_type": "line"}, ensure_ascii=False)
+
+        valid_values = [v for v in values if v is not None]
+        if not valid_values:
+            return json.dumps({"title": title, "data_points": [], "x_labels": [], "y_values": [], "chart_type": "line"}, ensure_ascii=False)
+
+        y_max = 100
+        y_min = 0
+        y_values = [100, 80, 60, 40, 20, 0]
+        y_labels = ["100", "80", "60", "40", "20", "0"]
+
+        chart_data = {
+            "title": title,
+            "data_points": values,
+            "x_labels": labels,
+            "y_values": y_values,
+            "y_labels": y_labels,
+            "chart_type": "line"
+        }
+
+    else:
+        chart_data = {
+            "title": title,
+            "data_points": [],
+            "x_labels": [],
+            "y_values": [],
+            "y_labels": [],
+            "chart_type": "line"
+        }
+
+    return json.dumps(chart_data, ensure_ascii=False)
 
 
 def build_ascii_chart(chart_type: str, title: str, data: dict) -> str:
@@ -125,95 +244,64 @@ def build_ascii_chart(chart_type: str, title: str, data: dict) -> str:
 
 
 def build_blood_sugar_ascii(title: str, data: dict) -> str:
-    """构建血糖趋势图ASCII文本"""
+    """构建血糖趋势图ASCII文本 - 使用柱状图显示空腹血糖（单序列）"""
     labels = data.get('labels', [])
     fasting_data = data.get('fasting', [])
     bedtime_data = data.get('bedtime', [])
 
-    # 找出所有数据的最大值和最小值
-    all_values = [v for v in fasting_data if v is not None] + [v for v in bedtime_data if v is not None]
-    if not all_values:
+    # 只使用空腹血糖数据（单序列柱状图）
+    valid_values = [v for v in fasting_data if v is not None]
+
+    if not valid_values:
         return f"{title}:\n无数据"
 
-    max_val = max(all_values)
-    min_val = min(all_values)
-
-    # 向上取整到0.5的倍数
-    y_max = int(max_val * 2 + 1) / 2
-    y_min = int(min_val * 2) / 2
-    y_min = max(0, y_min)
+    max_val = max(valid_values)
+    # Y轴最大值向上取整到0.5的倍数，留出一些顶部空间
+    y_max = int(max_val * 2 + 2) / 2
+    y_min = 0  # 从0开始
 
     # 确定Y轴刻度
-    y_steps = 7
+    y_steps = 8  # 8行高度
     y_range = y_max - y_min
     y_increment = y_range / (y_steps - 1) if y_steps > 1 else 1
 
-    # 构建空腹血糖图表 - 数据和Y轴标签在同一行
+    # 计算每个数据点应该显示的行号（从底部0开始）
+    def get_bar_height(val):
+        if val is None or val <= 0:
+            return 0
+        # 计算柱子高度（行数），最小1行
+        height = int((val / y_max) * (y_steps - 1)) + 1
+        return min(height, y_steps - 1)
+
+    heights = [get_bar_height(v) for v in fasting_data]
+
+    # 构建图表
     chart_lines = []
     chart_lines.append(f"{title}:")
 
-    for i in range(y_steps):
-        y_val = y_max - (i * y_increment)
-        y_label = f"{y_val:5.1f} ┤"
-
-        # 为每个数据点生成对应的位置 - 数据在同一行
-        line_parts = [y_label]
-        for j, val in enumerate(fasting_data):
-            if val is not None:
-                # 找到最近的Y轴刻度索引
-                closest_y_idx = round((y_max - val) / y_increment)
-                closest_y_idx = max(0, min(closest_y_idx, y_steps - 1))
-                if closest_y_idx == i:
-                    line_parts.append(" █ ")
-                else:
-                    line_parts.append("   ")
-            else:
-                line_parts.append("   ")
-
-        chart_lines.append("".join(line_parts))
-
-    # X轴标签
-    x_axis_line = "     ┼" + "───" * len(labels)
-    chart_lines.append(x_axis_line)
-
-    label_line = "      "
-    for label in labels:
-        label_line += f" {label:>2s} "
-    chart_lines.append(label_line + " (日期)")
-
-    chart_lines.append("")
-
-    # 构建睡前血糖图表
-    chart_lines.append(f"睡前血糖趋势:")
-
-    for i in range(y_steps):
-        y_val = y_max - (i * y_increment)
+    # 从上到下绘制每一行
+    for row in range(y_steps - 1, -1, -1):
+        y_val = y_min + (row * y_increment)
         y_label = f"{y_val:.1f}"
 
-        # 睡前血糖数据点 - 同一行
+        # 空腹血糖数据点 - 使用 █ 字符，┤ 作为分隔符（适配解析器）
         line = f"{y_label:5s} ┤"
-        for j, val in enumerate(bedtime_data):
-            if val is not None:
-                closest_y_idx = round((y_max - val) / y_increment)
-                closest_y_idx = max(0, min(closest_y_idx, y_steps - 1))
-                if closest_y_idx == i:
-                    line += " █ "
-                else:
-                    line += "   "
+        for height in heights:
+            if height > row:
+                line += " █ "
             else:
                 line += "   "
-
         chart_lines.append(line)
 
-    # X轴
-    chart_lines.append("     ┼" + "───" * len(labels))
-    chart_lines.append("      " + "  ".join(f"{l:>2s}" for l in labels) + " (日期)")
+    # X轴 - 使用 ┼ 作为X轴线
+    chart_lines.append("     ┼" + "─" * (len(labels) * 3))
+    chart_lines.append("      " + "  ".join(f"{l:2s}" for l in labels) + " (日期)")
 
     return "\n".join(chart_lines)
 
 
 def build_consumption_ascii(title: str, data: dict) -> str:
-    """构建消费趋势图ASCII文本"""
+    """构建消费趋势图ASCII文本 - 使用柱状图显示所有数据点"""
     labels = data.get('labels', [])
     values = data.get('values', [])
 
@@ -224,114 +312,103 @@ def build_consumption_ascii(title: str, data: dict) -> str:
         return f"{title}:\n无数据"
 
     max_val = max(valid_values)
-    y_max = int(max_val / 50 + 1) * 50  # 向上取整到50的倍数
+    # Y轴最大值向上取整到50的倍数，留出一些顶部空间
+    y_max = int(max_val / 50 + 1) * 50
+    if y_max == 0:
+        y_max = 50
 
     # 确定Y轴刻度
-    y_steps = 7
+    y_steps = 8  # 8行高度
     y_increment = y_max / (y_steps - 1) if y_steps > 1 else 50
 
-    # 构建图表 - 数据和Y轴标签在同一行
+    # 计算每个数据点应该显示的行号（从底部0开始）
+    def get_bar_height(val):
+        if val is None or val <= 0:
+            return 0
+        # 计算柱子高度（行数），最小1行
+        height = int((val / y_max) * (y_steps - 1)) + 1
+        return min(height, y_steps - 1)
+
+    heights = [get_bar_height(v) for v in values]
+
+    # 构建图表
     chart_lines = []
     chart_lines.append(f"{title}:")
 
-    for i in range(y_steps):
-        y_val = y_max - (i * y_increment)
-        y_label = f"{int(y_val)}"
+    # 从上到下绘制每一行
+    for row in range(y_steps - 1, -1, -1):
+        y_val = row * y_increment
+        if row == y_steps - 1:
+            y_label = "   0"
+        else:
+            y_label = f"{int(y_val):>4}"
 
-        line = f"{y_label:>4s} ┤"
-        for j, val in enumerate(values):
-            if val is not None:
-                # 找到最近的Y轴刻度
-                closest_y_idx = round((y_max - val) / y_increment)
-                closest_y_idx = max(0, min(closest_y_idx, y_steps - 1))
-                if closest_y_idx == i:
-                    line += " █ "
-                else:
-                    line += "   "
+        # 使用 ┤ 作为分隔符
+        line = f"{y_label} ┤"
+        for height in heights:
+            if height > row:
+                line += " █ "
             else:
                 line += "   "
-
         chart_lines.append(line)
 
-    # X轴
-    chart_lines.append("    0 ┼" + "───" * len(labels))
-    chart_lines.append("      " + "  ".join(f"{l:>2s}" for l in labels) + " (日期)")
+    # X轴 - 使用 ┼
+    chart_lines.append("    ┼" + "─" * (len(labels) * 3))
+    chart_lines.append("      " + "  ".join(f"{l:2s}" for l in labels) + " (日期)")
 
     return "\n".join(chart_lines)
 
 
 def build_task_completion_ascii(title: str, data: dict) -> str:
-    """构建任务完成率图ASCII文本"""
+    """构建任务完成率图ASCII文本 - 使用柱状图显示今日计划完成率（单序列）"""
     labels = data.get('labels', [])
     planned_data = data.get('planned', [])
     work_data = data.get('work', [])
 
-    # 找出所有数据的最大值和最小值
-    all_values = [v for v in planned_data if v is not None] + [v for v in work_data if v is not None]
-    if not all_values:
+    # 只使用今日计划数据（单序列柱状图）
+    valid_values = [v for v in planned_data if v is not None]
+
+    if not valid_values:
         return f"{title}:\n无数据"
 
-    max_val = max(all_values)
+    max_val = max(valid_values)
     y_max = 100  # 百分比
 
     # 确定Y轴刻度
-    y_steps = 6
+    y_steps = 6  # 6行高度: 100%, 80%, 60%, 40%, 20%, 0%
     y_increment = y_max / (y_steps - 1)
 
-    # 构建今日计划完成率图表 - 数据和Y轴标签在同一行
+    # 计算每个数据点应该显示的行号（从底部0开始）
+    def get_bar_height(val):
+        if val is None or val <= 0:
+            return 0
+        # 计算柱子高度（行数），最小1行
+        height = int((val / y_max) * (y_steps - 1)) + 1
+        return min(height, y_steps - 1)
+
+    heights = [get_bar_height(v) for v in planned_data]
+
+    # 构建图表
     chart_lines = []
-    chart_lines.append(f"{title} - 今日计划:")
+    chart_lines.append(f"{title}:")
 
-    for i in range(y_steps):
-        y_val = y_max - (i * y_increment)
-        y_label = f"{int(y_val)}"
+    # 从上到下绘制每一行
+    for row in range(y_steps - 1, -1, -1):
+        y_val = row * y_increment
+        y_label = f"{int(y_val):>3}%"
 
-        line = f"{y_label:>3s}% ┤"
-        for j, val in enumerate(planned_data):
-            if val is not None:
-                # 找到最近的Y轴刻度
-                closest_y_idx = round((y_max - val) / y_increment)
-                closest_y_idx = max(0, min(closest_y_idx, y_steps - 1))
-                if closest_y_idx == i:
-                    line += " █ "
-                else:
-                    line += "   "
+        # 使用 ┤ 作为分隔符
+        line = f"{y_label} ┤"
+        for height in heights:
+            if height > row:
+                line += " █ "
             else:
                 line += "   "
-
         chart_lines.append(line)
 
-    # X轴
-    chart_lines.append("   0% ┼" + "───" * len(labels))
-    chart_lines.append("      " + "  ".join(f"{l:>2s}" for l in labels) + " (日期)")
-
-    chart_lines.append("")
-
-    # 构建工作/学习完成率图表
-    chart_lines.append(f"{title} - 工作/学习:")
-
-    for i in range(y_steps):
-        y_val = y_max - (i * y_increment)
-        y_label = f"{int(y_val)}"
-
-        line = f"{y_label:>3s}% ┤"
-        for j, val in enumerate(work_data):
-            if val is not None:
-                # 找到最近的Y轴刻度
-                closest_y_idx = round((y_max - val) / y_increment)
-                closest_y_idx = max(0, min(closest_y_idx, y_steps - 1))
-                if closest_y_idx == i:
-                    line += " █ "
-                else:
-                    line += "   "
-            else:
-                line += "   "
-
-        chart_lines.append(line)
-
-    # X轴
-    chart_lines.append("   0% ┼" + "───" * len(labels))
-    chart_lines.append("      " + "  ".join(f"{l:>2s}" for l in labels) + " (日期)")
+    # X轴 - 使用 ┼
+    chart_lines.append("   0% ┼" + "─" * (len(labels) * 3))
+    chart_lines.append("      " + "  ".join(f"{l:2s}" for l in labels) + " (日期)")
 
     return "\n".join(chart_lines)
 
@@ -465,21 +542,6 @@ def find_diary_files(base_dir: Path, year: int, month: int, week: int = None, en
     month_cn = chinese_months[month - 1] if 1 <= month <= 12 else f"{month}月"
     end_month_cn = chinese_months[end_month - 1] if end_month and 1 <= end_month <= 12 else f"{end_month}月" if end_month else None
 
-    # 周目录名称变体
-    week_dir_names = [
-        f"第{week}周",
-        f"第{week:02d}周",
-        f"{week}周",
-        f"{week:02d}周",
-        "第一周" if week == 1 else f"第{week}周",
-        "第二周" if week == 2 else f"第{week}周",
-        "第三周" if week == 3 else f"第{week}周",
-        "第四周" if week == 4 else f"第{week}周",
-        "第五周" if week == 5 else f"第{week}周",
-        "第六周" if week == 6 else f"第{week}周",
-    ]
-    week_dir_names = list(set(week_dir_names))
-
     def search_week_dir(month_dir: Path) -> list:
         """在指定月份目录中搜索周目录"""
         found_files = []
@@ -491,37 +553,118 @@ def find_diary_files(base_dir: Path, year: int, month: int, week: int = None, en
                         found_files.append(md_file)
         return found_files
 
+    def get_week_date_range(year: int, week: int) -> tuple:
+        """
+        计算指定年份和周数的周一和周日日期
+        ISO周历系统：第1周是包含该年第一个星期四的周
+
+        Returns:
+            (start_date, end_date) datetime.date 对象
+        """
+        # 使用ISO周历
+        from datetime import datetime, timedelta
+
+        # 创建该年的1月4日（ISO周历中第1周必定包含的日期）
+        jan4 = datetime(year, 1, 4)
+
+        # 找到该年第一个周一
+        first_monday = jan4 - timedelta(days=jan4.weekday())
+
+        # 计算指定周的周一
+        start_date = first_monday + timedelta(weeks=week - 1)
+        end_date = start_date + timedelta(days=6)
+
+        return start_date.date(), end_date.date()
+
     if week:
-        # 收集所有月份的日记文件
+        # 计算周的开始和结束日期
+        start_date, end_date = get_week_date_range(year, week)
+        print(f"📅 周日期范围: {start_date} 至 {end_date}")
+
+        # 周目录名称变体
+        week_dir_names = [
+            f"第{week}周",
+            f"第{week:02d}周",
+            f"{week}周",
+            f"{week:02d}周",
+            "第一周" if week == 1 else f"第{week}周",
+            "第二周" if week == 2 else f"第{week}周",
+            "第三周" if week == 3 else f"第{week}周",
+            "第四周" if week == 4 else f"第{week}周",
+            "第五周" if week == 5 else f"第{week}周",
+            "第六周" if week == 6 else f"第{week}周",
+        ]
+        week_dir_names = list(set(week_dir_names))
+
+        # 收集所有可能的日记文件
         all_diary_files = []
 
-        # 要搜索的月份目录
-        month_dirs_to_search = []
+        # 搜索的月份目录列表
+        month_dirs_to_search = set()
 
-        # 起始月份目录
-        month_dirs_to_search.append((f"{year}年/{month_cn}", base_dir / f"日记/{year}年/{month_cn}"))
-        month_dirs_to_search.append((f"{year}年/{month}月", base_dir / f"日记/{year}年/{month}月"))
+        # 添加起始月份
+        month_dirs_to_search.add((f"{year}年/{month_cn}", base_dir / f"日记/{year}年/{month_cn}"))
+        month_dirs_to_search.add((f"{year}年/{month}月", base_dir / f"日记/{year}年/{month}月"))
 
-        # 如果跨月，添加结束月份目录
+        # 如果跨月，添加结束月份
         if end_month and end_month != month:
-            month_dirs_to_search.append((f"{year}年/{end_month_cn}", base_dir / f"日记/{year}年/{end_month_cn}"))
-            month_dirs_to_search.append((f"{year}年/{end_month}月", base_dir / f"日记/{year}年/{end_month}月"))
+            month_dirs_to_search.add((f"{year}年/{end_month_cn}", base_dir / f"日记/{year}年/{end_month_cn}"))
+            month_dirs_to_search.add((f"{year}年/{end_month}月", base_dir / f"日记/{year}年/{end_month}月"))
 
-        # 也尝试下一年的一月（用于处理年末跨年情况）
-        if month == 12 and (not end_month or end_month == 1):
+        # 处理年末跨年到次年的情况
+        if month == 12:
             next_year = year + 1
-            month_dirs_to_search.append((f"{next_year}年/一月", base_dir / f"日记/{next_year}年/一月"))
-            month_dirs_to_search.append((f"{next_year}年/1月", base_dir / f"日记/{next_year}年/1月"))
+            # 如果结束月份是1月，搜索次年1月
+            if not end_month or end_month == 1:
+                month_dirs_to_search.add((f"{next_year}年/一月", base_dir / f"日记/{next_year}年/一月"))
+                month_dirs_to_search.add((f"{next_year}年/1月", base_dir / f"日记/{next_year}年/1月"))
 
-        # 搜索所有月份并合并结果
+        # 如果结束月份是1月，搜索前一年12月
+        if month == 1 and end_month and end_month > 1:
+            prev_year = year - 1
+            month_dirs_to_search.add((f"{prev_year}年/十二月", base_dir / f"日记/{prev_year}年/十二月"))
+            month_dirs_to_search.add((f"{prev_year}年/12月", base_dir / f"日记/{prev_year}年/12月"))
+
+        # 搜索所有月份目录
+        found_files_dict = {}  # date -> file_path，用于去重和按日期排序
         for dir_desc, month_dir in month_dirs_to_search:
             if month_dir.exists() and month_dir.is_dir():
-                files = search_week_dir(month_dir)
-                if files:
-                    print(f"📁 从 {dir_desc} 找到 {len(files)} 个日记文件")
-                    all_diary_files.extend(files)
+                # 搜索周目录
+                for week_name in week_dir_names:
+                    week_dir = month_dir / week_name
+                    if week_dir.exists() and week_dir.is_dir():
+                        for md_file in week_dir.glob("*.md"):
+                            if '统计报表' not in md_file.name and '周报' not in md_file.name:
+                                # 提取日期（文件名格式为 YYYY-MM-DD.md）
+                                date_str = md_file.stem
+                                try:
+                                    file_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                                    # 检查日期是否在周范围内
+                                    if start_date <= file_date <= end_date:
+                                        if date_str not in found_files_dict:
+                                            found_files_dict[date_str] = md_file
+                                            print(f"📁 找到日记: {date_str} (位于 {dir_desc}/{week_name})")
+                                except ValueError:
+                                    # 如果文件名不是日期格式，跳过
+                                    pass
 
-        diary_files = sorted(all_diary_files)
+                # 也搜索没有周目录的日记（直接在月份目录下）
+                for md_file in month_dir.glob("*.md"):
+                    if '统计报表' not in md_file.name and '周报' not in md_file.name:
+                        date_str = md_file.stem
+                        try:
+                            file_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                            # 检查日期是否在周范围内
+                            if start_date <= file_date <= end_date:
+                                if date_str not in found_files_dict:
+                                    found_files_dict[date_str] = md_file
+                                    print(f"📁 找到日记: {date_str} (位于 {dir_desc})")
+                        except ValueError:
+                            pass
+
+        # 按日期排序返回
+        diary_files = [found_files_dict[d] for d in sorted(found_files_dict.keys())]
+        print(f"📊 共找到 {len(diary_files)} 个日记文件")
     else:
         # 月报模式
         month_dirs = [
@@ -910,10 +1053,11 @@ def generate_charts_svg(blood_sugar_data: list, consumption_data: list,
     date_labels = [d['date'].split('-')[-1] if '-' in d['date'] else d['date']
                    for d in blood_sugar_data]
 
-    # 1. 血糖趋势图
+    # 1. 血糖趋势图 - 支持三个数据序列
     blood_data = {
         'labels': date_labels,
         'fasting': [d['fasting'] for d in blood_sugar_data],
+        'post_meal': [d['post_meal'] for d in blood_sugar_data],
         'bedtime': [d['bedtime'] for d in blood_sugar_data]
     }
 
