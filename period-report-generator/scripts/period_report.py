@@ -57,42 +57,40 @@ def generate_chart_svg(chart_type: str, title: str, data: dict,
         print("⚠️  未找到 chart_to_svg 脚本")
         return False
 
+    # 构建ASCII图表文本
+    ascii_chart = build_ascii_chart(chart_type, title, data)
+
     try:
         print(f"📊 正在生成SVG图表: {title}")
 
-        # 构建JSON数据格式
-        chart_data = json.loads(build_chart_json(chart_type, title, data))
-
-        # 在输出目录创建临时JSON文件（确保持久存在）
-        json_file = output_path.parent / f"temp_chart_{id(chart_data)}.json"
-
-        with open(json_file, 'w', encoding='utf-8') as f:
-            json.dump(chart_data, f, ensure_ascii=False)
+        # 使用临时文件传递数据(避免Windows stdin编码问题)
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8', suffix='.txt', delete=False) as f:
+            temp_file = f.name
+            f.write(ascii_chart)
 
         try:
-            # 调用脚本，传递SVG输出路径和JSON文件路径
-            result = subprocess.run(
-                [sys.executable, str(script_path), str(output_path), str(json_file)],
-                capture_output=True,
-                timeout=30
-            )
-
-            stderr_text = result.stderr.decode('utf-8', errors='replace') if result.stderr else ''
-
-            if stderr_text:
-                print(f"📝 脚本输出: {stderr_text}", file=sys.stderr)
+            # 调用 chart_to_svg 脚本,从临时文件读取
+            with open(temp_file, 'r', encoding='utf-8') as input_file:
+                result = subprocess.run(
+                    [sys.executable, str(script_path), str(output_path)],
+                    stdin=input_file,
+                    capture_output=True,
+                    text=True,
+                    timeout=30  # 30秒超时
+                )
 
             if result.returncode == 0 and output_path.exists():
                 print(f"✅ SVG图表已生成: {output_path}")
                 return True
             else:
-                print(f"⚠️  SVG图表生成失败")
+                print(f"⚠️  SVG图表生成失败: {result.stderr}")
                 return False
         finally:
-            # 清理临时JSON文件
+            # 删除临时文件
             try:
-                if json_file.exists():
-                    json_file.unlink()
+                import os
+                os.unlink(temp_file)
             except:
                 pass
 
@@ -102,123 +100,6 @@ def generate_chart_svg(chart_type: str, title: str, data: dict,
     except Exception as e:
         print(f"⚠️  SVG图表生成错误: {e}")
         return False
-
-
-def build_chart_json(chart_type: str, title: str, data: dict) -> str:
-    """
-    构建JSON格式的图表数据
-
-    Args:
-        chart_type: 图表类型
-        title: 图表标题
-        data: 图表数据
-
-    Returns:
-        JSON字符串
-    """
-    import json
-
-    if chart_type == "blood_sugar":
-        # 血糖支持三个数据序列：空腹、餐后、睡前
-        labels = data.get('labels', [])
-        fasting = data.get('fasting', [])
-        post_meal = data.get('post_meal', [])
-        bedtime = data.get('bedtime', [])
-
-        # 收集所有有效值来确定Y轴范围
-        all_values = [v for v in fasting if v is not None] + \
-                     [v for v in post_meal if v is not None] + \
-                     [v for v in bedtime if v is not None]
-
-        if not all_values:
-            return json.dumps({"title": title, "data_points": [], "x_labels": [], "y_values": [], "chart_type": "multi_line"}, ensure_ascii=False)
-
-        # 血糖固定Y轴范围 0-10 mmol/L
-        y_max = 10.0
-        y_min = 0.0
-        y_values = [10.0, 8.0, 6.0, 4.0, 2.0, 0.0]
-        y_labels = ["10", "8", "6", "4", "2", "0"]
-
-        chart_data = {
-            "title": title,
-            "x_labels": labels,
-            "y_values": y_values,
-            "y_labels": y_labels,
-            "chart_type": "multi_line",  # 多序列折线图
-            "series": [
-                {"name": "空腹血糖", "data": fasting, "color": "#2196F3"},
-                {"name": "餐后2h", "data": post_meal, "color": "#4CAF50"},
-                {"name": "睡前血糖", "data": bedtime, "color": "#FF9800"}
-            ],
-            "normal_range": {"min": 3.9, "max": 7.8}  # 正常范围参考
-        }
-
-    elif chart_type == "consumption":
-        labels = data.get('labels', [])
-        values = data.get('values', [])
-
-        if not values:
-            return json.dumps({"title": title, "data_points": [], "x_labels": [], "y_values": [], "chart_type": "line"}, ensure_ascii=False)
-
-        valid_values = [v for v in values if v is not None]
-        if not valid_values:
-            return json.dumps({"title": title, "data_points": [], "x_labels": [], "y_values": [], "chart_type": "line"}, ensure_ascii=False)
-
-        max_val = max(valid_values)
-        y_max = int(max_val / 100 + 1) * 100
-        if y_max < 100:
-            y_max = 100
-        y_min = 0
-        num_steps = 6
-        step = y_max / (num_steps - 1)
-        y_values = [y_max - i * step for i in range(num_steps)]
-        y_labels = [f"{int(y_max - i * step)}" for i in range(num_steps)]
-
-        chart_data = {
-            "title": title,
-            "data_points": values,
-            "x_labels": labels,
-            "y_values": y_values,
-            "y_labels": y_labels,
-            "chart_type": "line"
-        }
-
-    elif chart_type == "task_completion":
-        labels = data.get('labels', [])
-        values = data.get('planned', [])
-
-        if not values:
-            return json.dumps({"title": title, "data_points": [], "x_labels": [], "y_values": [], "chart_type": "line"}, ensure_ascii=False)
-
-        valid_values = [v for v in values if v is not None]
-        if not valid_values:
-            return json.dumps({"title": title, "data_points": [], "x_labels": [], "y_values": [], "chart_type": "line"}, ensure_ascii=False)
-
-        y_max = 100
-        y_min = 0
-        y_values = [100, 80, 60, 40, 20, 0]
-        y_labels = ["100", "80", "60", "40", "20", "0"]
-
-        chart_data = {
-            "title": title,
-            "data_points": values,
-            "x_labels": labels,
-            "y_values": y_values,
-            "y_labels": y_labels,
-            "chart_type": "line"
-        }
-
-    else:
-        chart_data = {
-            "title": title,
-            "data_points": [],
-            "x_labels": [],
-            "y_values": [],
-            "y_labels": [],
-            "chart_type": "line"
-        }
-
-    return json.dumps(chart_data, ensure_ascii=False)
 
 
 def build_ascii_chart(chart_type: str, title: str, data: dict) -> str:
@@ -239,69 +120,58 @@ def build_ascii_chart(chart_type: str, title: str, data: dict) -> str:
         return build_consumption_ascii(title, data)
     elif chart_type == "task_completion":
         return build_task_completion_ascii(title, data)
+    elif chart_type == "okr_completion":
+        return build_okr_completion_ascii(title, data)
+    elif chart_type == "okr_priority":
+        return build_okr_priority_ascii(title, data)
     else:
         return f"{title}:\n无数据"
 
 
 def build_blood_sugar_ascii(title: str, data: dict) -> str:
-    """构建血糖趋势图ASCII文本 - 使用柱状图显示空腹血糖（单序列）"""
+    """构建血糖趋势图ASCII文本（数据表格格式）"""
     labels = data.get('labels', [])
     fasting_data = data.get('fasting', [])
     bedtime_data = data.get('bedtime', [])
 
-    # 只使用空腹血糖数据（单序列柱状图）
-    valid_values = [v for v in fasting_data if v is not None]
-
-    if not valid_values:
+    # 找出所有数据的最大值和最小值
+    all_values = [v for v in fasting_data if v is not None] + [v for v in bedtime_data if v is not None]
+    if not all_values:
         return f"{title}:\n无数据"
 
-    max_val = max(valid_values)
-    # Y轴最大值向上取整到0.5的倍数，留出一些顶部空间
-    y_max = int(max_val * 2 + 2) / 2
-    y_min = 0  # 从0开始
+    chart_lines = [f"{title}:", ""]
 
-    # 确定Y轴刻度
-    y_steps = 8  # 8行高度
-    y_range = y_max - y_min
-    y_increment = y_range / (y_steps - 1) if y_steps > 1 else 1
+    # 表头
+    header = "日期    │"
+    for label in labels:
+        day = label.split('-')[-1] if '-' in label else label
+        header += f" {day:>5s} │"
+    chart_lines.append(header)
+    chart_lines.append("────────┼" + "───────┼" * len(labels))
 
-    # 计算每个数据点应该显示的行号（从底部0开始）
-    def get_bar_height(val):
-        if val is None or val <= 0:
-            return 0
-        # 计算柱子高度（行数），最小1行
-        height = int((val / y_max) * (y_steps - 1)) + 1
-        return min(height, y_steps - 1)
+    # 空腹血糖数据行
+    fasting_line = "空腹    │"
+    for val in fasting_data:
+        if val is not None:
+            fasting_line += f" {val:>5.1f} │"
+        else:
+            fasting_line += "   -   │"
+    chart_lines.append(fasting_line)
 
-    heights = [get_bar_height(v) for v in fasting_data]
-
-    # 构建图表
-    chart_lines = []
-    chart_lines.append(f"{title}:")
-
-    # 从上到下绘制每一行
-    for row in range(y_steps - 1, -1, -1):
-        y_val = y_min + (row * y_increment)
-        y_label = f"{y_val:.1f}"
-
-        # 空腹血糖数据点 - 使用 █ 字符，┤ 作为分隔符（适配解析器）
-        line = f"{y_label:5s} ┤"
-        for height in heights:
-            if height > row:
-                line += " █ "
-            else:
-                line += "   "
-        chart_lines.append(line)
-
-    # X轴 - 使用 ┼ 作为X轴线
-    chart_lines.append("     ┼" + "─" * (len(labels) * 3))
-    chart_lines.append("      " + "  ".join(f"{l:2s}" for l in labels) + " (日期)")
+    # 睡前血糖数据行
+    bedtime_line = "睡前    │"
+    for val in bedtime_data:
+        if val is not None:
+            bedtime_line += f" {val:>5.1f} │"
+        else:
+            bedtime_line += "   -   │"
+    chart_lines.append(bedtime_line)
 
     return "\n".join(chart_lines)
 
 
 def build_consumption_ascii(title: str, data: dict) -> str:
-    """构建消费趋势图ASCII文本 - 使用柱状图显示所有数据点"""
+    """构建消费趋势图ASCII文本（数据表格格式）"""
     labels = data.get('labels', [])
     values = data.get('values', [])
 
@@ -311,104 +181,140 @@ def build_consumption_ascii(title: str, data: dict) -> str:
     if not valid_values:
         return f"{title}:\n无数据"
 
-    max_val = max(valid_values)
-    # Y轴最大值向上取整到50的倍数，留出一些顶部空间
-    y_max = int(max_val / 50 + 1) * 50
-    if y_max == 0:
-        y_max = 50
+    chart_lines = [f"{title}:", ""]
 
-    # 确定Y轴刻度
-    y_steps = 8  # 8行高度
-    y_increment = y_max / (y_steps - 1) if y_steps > 1 else 50
+    # 表头 - 日期行
+    header = "日期    │"
+    for label in labels:
+        day = label.split('-')[-1] if '-' in label else label
+        header += f" {day:>6s} │"
+    chart_lines.append(header)
+    chart_lines.append("────────┼" + "────────┼" * len(labels))
 
-    # 计算每个数据点应该显示的行号（从底部0开始）
-    def get_bar_height(val):
-        if val is None or val <= 0:
-            return 0
-        # 计算柱子高度（行数），最小1行
-        height = int((val / y_max) * (y_steps - 1)) + 1
-        return min(height, y_steps - 1)
-
-    heights = [get_bar_height(v) for v in values]
-
-    # 构建图表
-    chart_lines = []
-    chart_lines.append(f"{title}:")
-
-    # 从上到下绘制每一行
-    for row in range(y_steps - 1, -1, -1):
-        y_val = row * y_increment
-        if row == y_steps - 1:
-            y_label = "   0"
+    # 消费金额数据行
+    amount_line = "金额(元)│"
+    for val in values:
+        if val is not None and val > 0:
+            amount_line += f" {val:>6.1f} │"
         else:
-            y_label = f"{int(y_val):>4}"
-
-        # 使用 ┤ 作为分隔符
-        line = f"{y_label} ┤"
-        for height in heights:
-            if height > row:
-                line += " █ "
-            else:
-                line += "   "
-        chart_lines.append(line)
-
-    # X轴 - 使用 ┼
-    chart_lines.append("    ┼" + "─" * (len(labels) * 3))
-    chart_lines.append("      " + "  ".join(f"{l:2s}" for l in labels) + " (日期)")
+            amount_line += "      - │"
+    chart_lines.append(amount_line)
 
     return "\n".join(chart_lines)
 
 
 def build_task_completion_ascii(title: str, data: dict) -> str:
-    """构建任务完成率图ASCII文本 - 使用柱状图显示今日计划完成率（单序列）"""
+    """构建OKR完成率图ASCII文本"""
     labels = data.get('labels', [])
-    planned_data = data.get('planned', [])
-    work_data = data.get('work', [])
+    todo_rates = data.get('todo_rates', [])
+    temp_rates = data.get('temp_rates', [])
+    kr_rates = data.get('kr_rates', [])
 
-    # 只使用今日计划数据（单序列柱状图）
-    valid_values = [v for v in planned_data if v is not None]
-
-    if not valid_values:
+    if not labels:
         return f"{title}:\n无数据"
 
-    max_val = max(valid_values)
-    y_max = 100  # 百分比
+    chart_lines = [f"{title}", "=" * 40]
 
-    # 确定Y轴刻度
-    y_steps = 6  # 6行高度: 100%, 80%, 60%, 40%, 20%, 0%
-    y_increment = y_max / (y_steps - 1)
+    # 构建今日待办完成率图表
+    chart_lines.append("")
+    chart_lines.append("📋 今日待办完成率")
+    for i, label in enumerate(labels):
+        rate = todo_rates[i] if i < len(todo_rates) else 0
+        bar_len = int(rate * 25)
+        bar = "█" * bar_len + "░" * (25 - bar_len)
+        chart_lines.append(f"{label:6} │{bar} {rate*100:5.1f}%")
 
-    # 计算每个数据点应该显示的行号（从底部0开始）
-    def get_bar_height(val):
-        if val is None or val <= 0:
-            return 0
-        # 计算柱子高度（行数），最小1行
-        height = int((val / y_max) * (y_steps - 1)) + 1
-        return min(height, y_steps - 1)
+    chart_lines.append("")
+    chart_lines.append("⚡ 临时任务完成率")
+    for i, label in enumerate(labels):
+        rate = temp_rates[i] if i < len(temp_rates) else 0
+        bar_len = int(rate * 25)
+        bar = "█" * bar_len + "░" * (25 - bar_len)
+        chart_lines.append(f"{label:6} │{bar} {rate*100:5.1f}%")
 
-    heights = [get_bar_height(v) for v in planned_data]
+    chart_lines.append("")
+    chart_lines.append("🎯 KR关键结果完成率")
+    for i, label in enumerate(labels):
+        rate = kr_rates[i] if i < len(kr_rates) else 0
+        bar_len = int(rate * 25)
+        bar = "█" * bar_len + "░" * (25 - bar_len)
+        chart_lines.append(f"{label:6} │{bar} {rate*100:5.1f}%")
 
-    # 构建图表
-    chart_lines = []
-    chart_lines.append(f"{title}:")
+    chart_lines.append("=" * 40)
+    return "\n".join(chart_lines)
 
-    # 从上到下绘制每一行
-    for row in range(y_steps - 1, -1, -1):
-        y_val = row * y_increment
-        y_label = f"{int(y_val):>3}%"
 
-        # 使用 ┤ 作为分隔符
-        line = f"{y_label} ┤"
-        for height in heights:
-            if height > row:
-                line += " █ "
-            else:
-                line += "   "
-        chart_lines.append(line)
+def build_okr_completion_ascii(title: str, data: dict) -> str:
+    """构建OKR完成率趋势ASCII文本（数据表格格式）"""
+    labels = data.get('labels', [])
+    todo_rates = data.get('todo_rates', [])
+    temp_rates = data.get('temp_rates', [])
+    kr_rates = data.get('kr_rates', [])
 
-    # X轴 - 使用 ┼
-    chart_lines.append("   0% ┼" + "─" * (len(labels) * 3))
-    chart_lines.append("      " + "  ".join(f"{l:2s}" for l in labels) + " (日期)")
+    if not labels:
+        return f"{title}:\n无数据"
+
+    chart_lines = [f"{title}:", ""]
+
+    # 表头 - 日期行
+    header = "类型      │"
+    for label in labels:
+        day = label.split('-')[-1] if '-' in label else label
+        header += f" {day:>6s} │"
+    chart_lines.append(header)
+    chart_lines.append("──────────┼" + "────────┼" * len(labels))
+
+    # 今日待办完成率行
+    todo_line = "📋待办(%) │"
+    for rate in todo_rates:
+        if rate is not None:
+            todo_line += f" {rate*100:>6.1f} │"
+        else:
+            todo_line += "      - │"
+    chart_lines.append(todo_line)
+
+    # 临时任务完成率行
+    temp_line = "⚡临时(%) │"
+    for rate in temp_rates:
+        if rate is not None:
+            temp_line += f" {rate*100:>6.1f} │"
+        else:
+            temp_line += "      - │"
+    chart_lines.append(temp_line)
+
+    # KR完成率行
+    kr_line = "🎯KR(%)   │"
+    for rate in kr_rates:
+        if rate is not None:
+            kr_line += f" {rate*100:>6.1f} │"
+        else:
+            kr_line += "      - │"
+    chart_lines.append(kr_line)
+
+    return "\n".join(chart_lines)
+
+
+def build_okr_priority_ascii(title: str, data: dict) -> str:
+    """构建KR按优先级完成率图ASCII文本（数据表格格式）"""
+    kr_by_priority = data.get('kr_by_priority', {})
+
+    if not kr_by_priority or all(p['total'] == 0 for p in kr_by_priority.values()):
+        return f"{title}:\n无KR数据"
+
+    chart_lines = [f"{title}:", ""]
+    chart_lines.append("优先级 │ 总数 │ 已完成 │ 完成率 │")
+    chart_lines.append("───────┼──────┼────────┼────────┤")
+
+    # 按P0、P1、P2顺序显示
+    priority_names = {'P0': '🔴 P0', 'P1': '🟡 P1', 'P2': '🟢 P2'}
+
+    for p in ['P0', 'P1', 'P2']:
+        if p in kr_by_priority:
+            stats = kr_by_priority[p]
+            total = stats['total']
+            completed = stats['completed']
+            rate = (completed / total * 100) if total > 0 else 0
+            chart_lines.append(f"{priority_names[p]}  │ {total:>4d} │ {completed:>6d} │ {rate:>5.1f}% │")
 
     return "\n".join(chart_lines)
 
@@ -498,38 +404,194 @@ def parse_consumption(content: str) -> dict:
     return result
 
 
-def parse_task_completion(content: str) -> dict:
+def parse_okr_data(content: str) -> dict:
     """
-    解析任务完成情况
+    解析日OKR管理数据
+
+    Args:
+        content: 日记文件内容
 
     Returns:
-        {'planned': int, 'completed': int, 'work_completed': int, 'work_total': int}
+        解析后的OKR数据字典，包含Objective、待办事项、临时任务、KR等统计信息
     """
-    result = {'planned': 0, 'completed': 0, 'work_completed': 0, 'work_total': 0}
+    result = {
+        'objective_set': False,
+        'objective_content': '',
+        'todo_total': 0,
+        'todo_completed': 0,
+        'temp_total': 0,
+        'temp_completed': 0,
+        'kr_total': 0,
+        'kr_completed': 0,
+        'kr_in_progress': 0,
+        'kr_cancelled': 0,
+        'kr_by_priority': {
+            'P0': {'total': 0, 'completed': 0},
+            'P1': {'total': 0, 'completed': 0},
+            'P2': {'total': 0, 'completed': 0}
+        },
+        'kr_by_month_okr': {},
+        'total_tasks': 0,
+        'total_completed': 0
+    }
 
-    planned_tasks = re.findall(r'^- \[([ x])\]', content, re.MULTILINE)
-    result['planned'] = len(planned_tasks)
-    result['completed'] = sum(1 for t in planned_tasks if t == 'x')
+    # 提取日OKR管理部分 - 匹配从 "### 1. 日OKR管理" 到下一个 "### " 或 "## " 之间的内容
+    okr_section_match = re.search(
+        r'###\s*1\.\s*日OKR管理\s*\n(.*?)(?=\n###\s|\n##\s|$)',
+        content,
+        re.DOTALL
+    )
 
-    work_section = re.search(r'### 2\. 工作/学习\s*\n(.*?)(?=###|\n##)', content, re.DOTALL)
-    if work_section:
-        work_tasks = re.findall(r'- \[([ x])\]', work_section.group(1))
-        result['work_total'] = len(work_tasks)
-        result['work_completed'] = sum(1 for t in work_tasks if t == 'x')
+    if not okr_section_match:
+        return result
+
+    okr_section = okr_section_match.group(1)
+
+    # 提取Objective - 匹配 "#### 🎯 Objective：内容"
+    objective_match = re.search(
+        r'####\s*🎯\s*Objective\s*[：:]?\s*(.*?)(?=\n####|\n###|\n##|\*\*|$)',
+        okr_section,
+        re.DOTALL
+    )
+    if objective_match:
+        objective_content = objective_match.group(1).strip()
+        # 更严格的空内容检查 - 去除可能的冒号前缀
+        objective_content = objective_content.lstrip(':').strip()
+        if objective_content and objective_content not in ('::', ':', ''):
+            result['objective_set'] = True
+            result['objective_content'] = objective_content
+
+    # 提取今日待办事项 - 匹配 "##### 今日待办事项" 部分
+    todo_section_match = re.search(
+        r'#####\s*今日待办事项\s*\n(.*?)(?=#####|\n####|\n###|\n##|$)',
+        okr_section,
+        re.DOTALL
+    )
+    if todo_section_match:
+        todo_section = todo_section_match.group(1)
+        # 统计复选框 - [ ] 和 - [x]
+        todo_tasks = re.findall(r'^- \[([ x])\]', todo_section, re.MULTILINE)
+        result['todo_total'] = len(todo_tasks)
+        result['todo_completed'] = sum(1 for t in todo_tasks if t == 'x')
+
+    # 提取临时任务 - 匹配 "#### 临时任务" 部分
+    temp_section_match = re.search(
+        r'####\s*临时任务.*?\n(.*?)(?=####|\n###|\n##|$)',
+        okr_section,
+        re.DOTALL
+    )
+    if temp_section_match:
+        temp_section = temp_section_match.group(1)
+        # 统计复选框
+        temp_tasks = re.findall(r'^- \[([ x])\]', temp_section, re.MULTILINE)
+        result['temp_total'] = len(temp_tasks)
+        result['temp_completed'] = sum(1 for t in temp_tasks if t == 'x')
+
+    # 提取KR表格 - 匹配表格格式
+    # 表格格式：| 序号 | 关键任务 | 关联月OKR | 优先级 | 状态 |
+    kr_table_match = re.search(
+        r'\|\s*序号\s*\|.*?\|\s*状态\s*\|\s*\n\|[-:\s|]+\|\s*\n((?:\|[^\n]*\|\s*\n?)+)',
+        okr_section,
+        re.DOTALL
+    )
+
+    if kr_table_match:
+        kr_table_content = kr_table_match.group(1)
+        # 解析每一行
+        kr_rows = re.findall(
+            r'\|\s*([\w\d]+)\s*\|\s*(.*?)\s*\|\s*(.*?)\s*\|\s*(P\d+)\s*\|\s*(已完成|进行中|已取消)\s*\|',
+            kr_table_content
+        )
+
+        for row in kr_rows:
+            kr_id, task, month_okr, priority, status = row
+            result['kr_total'] += 1
+
+            # 统计状态
+            if status == '已完成':
+                result['kr_completed'] += 1
+            elif status == '进行中':
+                result['kr_in_progress'] += 1
+            elif status == '已取消':
+                result['kr_cancelled'] += 1
+
+            # 按优先级统计
+            if priority in result['kr_by_priority']:
+                result['kr_by_priority'][priority]['total'] += 1
+                if status == '已完成':
+                    result['kr_by_priority'][priority]['completed'] += 1
+
+            # 按关联月OKR统计 - 提取链接文本如 [[2026-03月OKR|月OKR]] 或纯文本
+            month_okr_clean = month_okr.strip()
+            # 处理Wiki链接格式 [[链接|显示文本]] 或 [[链接]]
+            # 使用贪婪匹配来正确解析 [[link|display]] 格式
+            wiki_link_match = re.search(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]', month_okr_clean)
+            if wiki_link_match:
+                # 使用显示文本（如果有）或链接本身
+                month_okr_key = wiki_link_match.group(2).strip() if wiki_link_match.group(2) else wiki_link_match.group(1).strip()
+            else:
+                month_okr_key = month_okr_clean
+
+            if month_okr_key:
+                if month_okr_key not in result['kr_by_month_okr']:
+                    result['kr_by_month_okr'][month_okr_key] = {
+                        'total': 0,
+                        'completed': 0,
+                        'in_progress': 0,
+                        'cancelled': 0
+                    }
+                result['kr_by_month_okr'][month_okr_key]['total'] += 1
+                if status == '已完成':
+                    result['kr_by_month_okr'][month_okr_key]['completed'] += 1
+                elif status == '进行中':
+                    result['kr_by_month_okr'][month_okr_key]['in_progress'] += 1
+                elif status == '已取消':
+                    result['kr_by_month_okr'][month_okr_key]['cancelled'] += 1
+
+    # 计算总任务数和总完成数
+    result['total_tasks'] = result['todo_total'] + result['temp_total'] + result['kr_total']
+    result['total_completed'] = result['todo_completed'] + result['temp_completed'] + result['kr_completed']
 
     return result
 
 
-def find_diary_files(base_dir: Path, year: int, month: int, week: int = None, end_month: int = None) -> list:
+def parse_task_completion(content: str) -> dict:
+    """
+    解析任务完成情况（适配新版日OKR管理格式）
+
+    Returns:
+        {
+            'planned': int,           # 今日待办总数
+            'completed': int,         # 今日待办完成数
+            'work_total': int,        # 总任务数（临时+KR）
+            'work_completed': int,    # 总完成数（临时+KR完成）
+            'okr_data': dict          # 完整的OKR数据（来自parse_okr_data）
+        }
+    """
+    # 调用新的OKR解析函数
+    okr_data = parse_okr_data(content)
+
+    # 构建兼容旧版的数据结构
+    result = {
+        'planned': okr_data['todo_total'],
+        'completed': okr_data['todo_completed'],
+        'work_total': okr_data['temp_total'] + okr_data['kr_total'],
+        'work_completed': okr_data['temp_completed'] + okr_data['kr_completed'],
+        'okr_data': okr_data  # 保留完整OKR数据供后续使用
+    }
+
+    return result
+
+
+def find_diary_files(base_dir: Path, year: int, month: int, week: int = None) -> list:
     """
     查找指定时间范围的日记文件
 
     Args:
         base_dir: 日记基础目录
         year: 年份
-        month: 月份（起始月份）
+        month: 月份
         week: 周数（可选）
-        end_month: 结束月份（用于跨月周报）
 
     Returns:
         日记文件路径列表
@@ -540,48 +602,8 @@ def find_diary_files(base_dir: Path, year: int, month: int, week: int = None, en
                       '七月', '八月', '九月', '十月', '十一月', '十二月']
 
     month_cn = chinese_months[month - 1] if 1 <= month <= 12 else f"{month}月"
-    end_month_cn = chinese_months[end_month - 1] if end_month and 1 <= end_month <= 12 else f"{end_month}月" if end_month else None
-
-    def search_week_dir(month_dir: Path) -> list:
-        """在指定月份目录中搜索周目录"""
-        found_files = []
-        for week_name in week_dir_names:
-            week_dir = month_dir / week_name
-            if week_dir.exists() and week_dir.is_dir():
-                for md_file in week_dir.glob("*.md"):
-                    if '统计报表' not in md_file.name and '周报' not in md_file.name:
-                        found_files.append(md_file)
-        return found_files
-
-    def get_week_date_range(year: int, week: int) -> tuple:
-        """
-        计算指定年份和周数的周一和周日日期
-        ISO周历系统：第1周是包含该年第一个星期四的周
-
-        Returns:
-            (start_date, end_date) datetime.date 对象
-        """
-        # 使用ISO周历
-        from datetime import datetime, timedelta
-
-        # 创建该年的1月4日（ISO周历中第1周必定包含的日期）
-        jan4 = datetime(year, 1, 4)
-
-        # 找到该年第一个周一
-        first_monday = jan4 - timedelta(days=jan4.weekday())
-
-        # 计算指定周的周一
-        start_date = first_monday + timedelta(weeks=week - 1)
-        end_date = start_date + timedelta(days=6)
-
-        return start_date.date(), end_date.date()
 
     if week:
-        # 计算周的开始和结束日期
-        start_date, end_date = get_week_date_range(year, week)
-        print(f"📅 周日期范围: {start_date} 至 {end_date}")
-
-        # 周目录名称变体
         week_dir_names = [
             f"第{week}周",
             f"第{week:02d}周",
@@ -592,81 +614,29 @@ def find_diary_files(base_dir: Path, year: int, month: int, week: int = None, en
             "第三周" if week == 3 else f"第{week}周",
             "第四周" if week == 4 else f"第{week}周",
             "第五周" if week == 5 else f"第{week}周",
-            "第六周" if week == 6 else f"第{week}周",
         ]
+
         week_dir_names = list(set(week_dir_names))
 
-        # 收集所有可能的日记文件
-        all_diary_files = []
-
-        # 搜索的月份目录列表
-        month_dirs_to_search = set()
-
-        # 添加起始月份
-        month_dirs_to_search.add((f"{year}年/{month_cn}", base_dir / f"日记/{year}年/{month_cn}"))
-        month_dirs_to_search.add((f"{year}年/{month}月", base_dir / f"日记/{year}年/{month}月"))
-
-        # 如果跨月，添加结束月份
-        if end_month and end_month != month:
-            month_dirs_to_search.add((f"{year}年/{end_month_cn}", base_dir / f"日记/{year}年/{end_month_cn}"))
-            month_dirs_to_search.add((f"{year}年/{end_month}月", base_dir / f"日记/{year}年/{end_month}月"))
-
-        # 处理年末跨年到次年的情况
-        if month == 12:
-            next_year = year + 1
-            # 如果结束月份是1月，搜索次年1月
-            if not end_month or end_month == 1:
-                month_dirs_to_search.add((f"{next_year}年/一月", base_dir / f"日记/{next_year}年/一月"))
-                month_dirs_to_search.add((f"{next_year}年/1月", base_dir / f"日记/{next_year}年/1月"))
-
-        # 如果结束月份是1月，搜索前一年12月
-        if month == 1 and end_month and end_month > 1:
-            prev_year = year - 1
-            month_dirs_to_search.add((f"{prev_year}年/十二月", base_dir / f"日记/{prev_year}年/十二月"))
-            month_dirs_to_search.add((f"{prev_year}年/12月", base_dir / f"日记/{prev_year}年/12月"))
-
-        # 搜索所有月份目录
-        found_files_dict = {}  # date -> file_path，用于去重和按日期排序
-        for dir_desc, month_dir in month_dirs_to_search:
-            if month_dir.exists() and month_dir.is_dir():
-                # 搜索周目录
-                for week_name in week_dir_names:
-                    week_dir = month_dir / week_name
-                    if week_dir.exists() and week_dir.is_dir():
-                        for md_file in week_dir.glob("*.md"):
-                            if '统计报表' not in md_file.name and '周报' not in md_file.name:
-                                # 提取日期（文件名格式为 YYYY-MM-DD.md）
-                                date_str = md_file.stem
-                                try:
-                                    file_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-                                    # 检查日期是否在周范围内
-                                    if start_date <= file_date <= end_date:
-                                        if date_str not in found_files_dict:
-                                            found_files_dict[date_str] = md_file
-                                            print(f"📁 找到日记: {date_str} (位于 {dir_desc}/{week_name})")
-                                except ValueError:
-                                    # 如果文件名不是日期格式，跳过
-                                    pass
-
-                # 也搜索没有周目录的日记（直接在月份目录下）
-                for md_file in month_dir.glob("*.md"):
+        for week_name in week_dir_names:
+            week_dir = base_dir / f"日记/{year}年/{month_cn}/{week_name}"
+            if week_dir.exists() and week_dir.is_dir():
+                for md_file in week_dir.glob("*.md"):
                     if '统计报表' not in md_file.name and '周报' not in md_file.name:
-                        date_str = md_file.stem
-                        try:
-                            file_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-                            # 检查日期是否在周范围内
-                            if start_date <= file_date <= end_date:
-                                if date_str not in found_files_dict:
-                                    found_files_dict[date_str] = md_file
-                                    print(f"📁 找到日记: {date_str} (位于 {dir_desc})")
-                        except ValueError:
-                            pass
+                        diary_files.append(md_file)
+                if diary_files:
+                    break
 
-        # 按日期排序返回
-        diary_files = [found_files_dict[d] for d in sorted(found_files_dict.keys())]
-        print(f"📊 共找到 {len(diary_files)} 个日记文件")
+        if not diary_files:
+            for week_name in week_dir_names:
+                week_dir = base_dir / f"日记/{year}年/{month}月/{week_name}"
+                if week_dir.exists() and week_dir.is_dir():
+                    for md_file in week_dir.glob("*.md"):
+                        if '统计报表' not in md_file.name and '周报' not in md_file.name:
+                            diary_files.append(md_file)
+                    if diary_files:
+                        break
     else:
-        # 月报模式
         month_dirs = [
             base_dir / f"日记/{year}年/{month_cn}",
             base_dir / f"日记/{year}年/{month}月",
@@ -780,26 +750,84 @@ def analyze_consumption_trend(data: list) -> dict:
 
 def analyze_goal_completion(data: list) -> dict:
     """
-    分析目标完成率
+    分析OKR目标完成情况
 
     Args:
-        data: 任务数据列表
+        data: 任务数据列表（包含okr_data字段）
 
     Returns:
         统计分析结果
     """
-    total_planned = sum(d['planned'] for d in data)
-    total_completed = sum(d['completed'] for d in data)
-    total_work = sum(d['work_total'] for d in data)
-    total_work_completed = sum(d['work_completed'] for d in data)
+    # 汇总所有OKR数据
+    total_todo = sum(d['okr_data']['todo_total'] for d in data if 'okr_data' in d)
+    total_todo_completed = sum(d['okr_data']['todo_completed'] for d in data if 'okr_data' in d)
+
+    total_temp = sum(d['okr_data']['temp_total'] for d in data if 'okr_data' in d)
+    total_temp_completed = sum(d['okr_data']['temp_completed'] for d in data if 'okr_data' in d)
+
+    total_kr = sum(d['okr_data']['kr_total'] for d in data if 'okr_data' in d)
+    total_kr_completed = sum(d['okr_data']['kr_completed'] for d in data if 'okr_data' in d)
+    total_kr_in_progress = sum(d['okr_data']['kr_in_progress'] for d in data if 'okr_data' in d)
+    total_kr_cancelled = sum(d['okr_data']['kr_cancelled'] for d in data if 'okr_data' in d)
+
+    # 汇总优先级统计
+    kr_by_priority = {'P0': {'total': 0, 'completed': 0},
+                     'P1': {'total': 0, 'completed': 0},
+                     'P2': {'total': 0, 'completed': 0}}
+
+    for d in data:
+        if 'okr_data' not in d:
+            continue
+        for p in ['P0', 'P1', 'P2']:
+            kr_by_priority[p]['total'] += d['okr_data']['kr_by_priority'][p]['total']
+            kr_by_priority[p]['completed'] += d['okr_data']['kr_by_priority'][p]['completed']
+
+    # 汇总月OKR统计
+    kr_by_month_okr = {}
+    for d in data:
+        if 'okr_data' not in d:
+            continue
+        for okr_name, stats in d['okr_data']['kr_by_month_okr'].items():
+            if okr_name not in kr_by_month_okr:
+                kr_by_month_okr[okr_name] = {'total': 0, 'completed': 0, 'in_progress': 0, 'cancelled': 0}
+            kr_by_month_okr[okr_name]['total'] += stats['total']
+            kr_by_month_okr[okr_name]['completed'] += stats['completed']
+            kr_by_month_okr[okr_name]['in_progress'] += stats['in_progress']
+            kr_by_month_okr[okr_name]['cancelled'] += stats['cancelled']
+
+    # 计算完成率
+    total_tasks = total_todo + total_temp + total_kr
+    total_completed = total_todo_completed + total_temp_completed + total_kr_completed
 
     result = {
-        'planned_rate': total_completed / total_planned if total_planned > 0 else 0,
-        'work_rate': total_work_completed / total_work if total_work > 0 else 0,
-        'total_planned': total_planned,
-        'total_completed': total_completed,
-        'total_work': total_work,
-        'total_work_completed': total_work_completed,
+        # 兼容旧字段
+        'planned_rate': total_todo_completed / total_todo if total_todo > 0 else 0,
+        'work_rate': (total_temp_completed + total_kr_completed) / (total_temp + total_kr) if (total_temp + total_kr) > 0 else 0,
+        'total_planned': total_todo,
+        'total_completed': total_todo_completed,
+        'total_work': total_temp + total_kr,
+        'total_work_completed': total_temp_completed + total_kr_completed,
+
+        # 新的OKR统计字段
+        'todo_total': total_todo,
+        'todo_completed': total_todo_completed,
+        'todo_rate': total_todo_completed / total_todo if total_todo > 0 else 0,
+
+        'temp_total': total_temp,
+        'temp_completed': total_temp_completed,
+        'temp_rate': total_temp_completed / total_temp if total_temp > 0 else 0,
+
+        'kr_total': total_kr,
+        'kr_completed': total_kr_completed,
+        'kr_in_progress': total_kr_in_progress,
+        'kr_cancelled': total_kr_cancelled,
+        'kr_rate': total_kr_completed / total_kr if total_kr > 0 else 0,
+
+        'kr_by_priority': kr_by_priority,
+        'kr_by_month_okr': kr_by_month_okr,
+
+        'total_tasks': total_tasks,
+        'overall_rate': total_completed / total_tasks if total_tasks > 0 else 0
     }
 
     return result
@@ -1037,63 +1065,204 @@ def extract_task_achievements(task_data: list, blood_sugar_data: list) -> dict:
     return {'completed_days': completed, 'uncompleted_days': uncompleted}
 
 
-def generate_charts_svg(blood_sugar_data: list, consumption_data: list,
-                       task_data: list, year: int, month: int, week: int,
-                       report_type: str, output_dir: Path,
-                       script_path: Path = None) -> dict:
+def generate_line_chart_svg(title: str, labels: list, datasets: list, y_max: float = None) -> str:
     """
-    使用 ascii-chart-to-svg 生成SVG图表并保存
+    生成SVG折线图
+
+    Args:
+        title: 图表标题
+        labels: X轴标签列表
+        datasets: 数据集列表，每个数据集为 {'name': str, 'values': list, 'color': str}
+        y_max: Y轴最大值，None则自动计算
 
     Returns:
-        图表文件路径字典
+        SVG字符串
     """
-    chart_paths = {}
+    width = 800
+    height = 400
+    margin_left = 60
+    margin_right = 40
+    margin_top = 50
+    margin_bottom = 60
+
+    chart_width = width - margin_left - margin_right
+    chart_height = height - margin_top - margin_bottom
+
+    # 计算Y轴范围
+    all_values = [v for ds in datasets for v in ds['values'] if v is not None]
+    if not all_values:
+        return f'<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg"><text x="{width/2}" y="{height/2}" text-anchor="middle">无数据</text></svg>'
+
+    if y_max is None:
+        y_max = max(all_values) * 1.1 if max(all_values) > 0 else 100
+    y_min = 0
+
+    def x_pos(i):
+        return margin_left + (i / max(1, len(labels) - 1)) * chart_width
+
+    def y_pos(val):
+        if val is None:
+            return None
+        return margin_top + chart_height - (val / y_max) * chart_height
+
+    svg = f'''<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .title {{ font-family: Arial, sans-serif; font-size: 16px; font-weight: bold; fill: #333; }}
+    .axis-label {{ font-family: Arial, sans-serif; font-size: 12px; fill: #666; }}
+    .legend-label {{ font-family: Arial, sans-serif; font-size: 12px; fill: #333; }}
+    .grid-line {{ stroke: #e0e0e0; stroke-width: 1; stroke-dasharray: 4,4; }}
+    .axis-line {{ stroke: #999; stroke-width: 1; }}
+    .data-line {{ fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }}
+    .data-point {{ r: 5; stroke: white; stroke-width: 2; }}
+    .data-point:hover {{ r: 7; }}
+  </style>
+  <rect width="{width}" height="{height}" fill="white"/>
+  <text x="{width/2}" y="30" text-anchor="middle" class="title">{title}</text>
+'''
+
+    # Y轴刻度和网格线
+    y_steps = 5
+    for i in range(y_steps + 1):
+        y_val = y_max * i / y_steps
+        y = margin_top + chart_height - (i / y_steps) * chart_height
+        svg += f'  <line x1="{margin_left}" y1="{y}" x2="{width - margin_right}" y2="{y}" class="grid-line"/>\n'
+        svg += f'  <text x="{margin_left - 10}" y="{y + 4}" text-anchor="end" class="axis-label">{y_val:.1f}</text>\n'
+
+    # X轴线
+    svg += f'  <line x1="{margin_left}" y1="{margin_top + chart_height}" x2="{width - margin_right}" y2="{margin_top + chart_height}" class="axis-line"/>\n'
+
+    # X轴标签
+    for i, label in enumerate(labels):
+        x = x_pos(i)
+        svg += f'  <text x="{x}" y="{height - margin_bottom + 20}" text-anchor="middle" class="axis-label">{label}</text>\n'
+
+    # 绘制每个数据集
+    legend_x = width - margin_right - 150
+    for ds_idx, ds in enumerate(datasets):
+        color = ds.get('color', '#4CAF50')
+        values = ds['values']
+
+        # 构建路径
+        path_d = ""
+        for i, val in enumerate(values):
+            y = y_pos(val)
+            if y is not None:
+                x = x_pos(i)
+                if path_d == "":
+                    path_d = f"M {x} {y}"
+                else:
+                    path_d += f" L {x} {y}"
+
+        if path_d:
+            svg += f'  <path d="{path_d}" class="data-line" stroke="{color}"/>\n'
+
+        # 绘制数据点
+        for i, val in enumerate(values):
+            y = y_pos(val)
+            if y is not None:
+                x = x_pos(i)
+                svg += f'  <circle cx="{x}" cy="{y}" class="data-point" fill="{color}"><title>{labels[i]}: {val:.1f}</title></circle>\n'
+
+        # 图例
+        svg += f'  <line x1="{legend_x}" y1="{margin_top + ds_idx * 20}" x2="{legend_x + 20}" y2="{margin_top + ds_idx * 20}" stroke="{color}" stroke-width="3"/>\n'
+        svg += f'  <text x="{legend_x + 30}" y="{margin_top + ds_idx * 20 + 4}" class="legend-label">{ds["name"]}</text>\n'
+
+    svg += '</svg>'
+    return svg
+
+
+def generate_charts_svg_inline(blood_sugar_data: list, consumption_data: list,
+                                task_data: list, goal_analysis: dict) -> str:
+    """
+    生成SVG折线图并内嵌到Markdown中
+
+    Returns:
+        Markdown图表文本（包含SVG）
+    """
+    import base64
+    charts_section = "\n## 📈 趋势图表\n"
 
     # 提取日期标签
     date_labels = [d['date'].split('-')[-1] if '-' in d['date'] else d['date']
                    for d in blood_sugar_data]
 
-    # 1. 血糖趋势图 - 支持三个数据序列
-    blood_data = {
-        'labels': date_labels,
-        'fasting': [d['fasting'] for d in blood_sugar_data],
-        'post_meal': [d['post_meal'] for d in blood_sugar_data],
-        'bedtime': [d['bedtime'] for d in blood_sugar_data]
-    }
+    # 1. 血糖趋势图
+    fasting_values = [d.get('fasting') for d in blood_sugar_data]
+    bedtime_values = [d.get('bedtime') for d in blood_sugar_data]
 
-    blood_chart_path = output_dir / f'blood_sugar_trend_{year}_{month:02d}_w{week if week else 0}.svg'
-    if generate_chart_svg('blood_sugar', '血糖监测趋势', blood_data, blood_chart_path, script_path):
-        chart_paths['blood_sugar_trend'] = str(blood_chart_path)
+    if any(v is not None for v in fasting_values + bedtime_values):
+        charts_section += "\n### 血糖监测趋势\n\n"
+        datasets = []
+        if any(v is not None for v in fasting_values):
+            datasets.append({'name': '空腹', 'values': fasting_values, 'color': '#FF6B6B'})
+        if any(v is not None for v in bedtime_values):
+            datasets.append({'name': '睡前', 'values': bedtime_values, 'color': '#4ECDC4'})
 
-    # 2. 消费柱状图
+        svg = generate_line_chart_svg("血糖监测趋势", date_labels, datasets, y_max=12)
+        # 将SVG转为base64嵌入
+        svg_encoded = base64.b64encode(svg.encode('utf-8')).decode('utf-8')
+        charts_section += f'<img src="data:image/svg+xml;base64,{svg_encoded}" alt="血糖趋势"/>\n'
+
+    # 2. 消费趋势图
     consumption_values = [d['total'] for d in consumption_data]
     if any(v > 0 for v in consumption_values):
-        consumption_data_dict = {
-            'labels': date_labels,
-            'values': consumption_values
-        }
+        charts_section += "\n### 每日消费趋势\n\n"
+        datasets = [{'name': '消费金额', 'values': consumption_values, 'color': '#4CAF50'}]
+        max_val = max(v for v in consumption_values if v > 0)
 
-        consumption_chart_path = output_dir / f'consumption_trend_{year}_{month:02d}_w{week if week else 0}.svg'
-        if generate_chart_svg('consumption', '每日消费趋势', consumption_data_dict, consumption_chart_path, script_path):
-            chart_paths['consumption_trend'] = str(consumption_chart_path)
+        svg = generate_line_chart_svg("每日消费趋势", date_labels, datasets, y_max=max_val * 1.2)
+        svg_encoded = base64.b64encode(svg.encode('utf-8')).decode('utf-8')
+        charts_section += f'<img src="data:image/svg+xml;base64,{svg_encoded}" alt="消费趋势"/>\n'
 
-    # 3. 任务完成率图
-    planned_rates = [(d['completed'] / d['planned'] * 100) if d['planned'] > 0 else 0
-                     for d in task_data]
-    work_rates = [(d['work_completed'] / d['work_total'] * 100) if d['work_total'] > 0 else 0
+    # 3. OKR完成率趋势图
+    okr_labels = [d['date'].split('-')[-1] if '-' in d['date'] else d['date']
                   for d in task_data]
+    todo_rates = []
+    temp_rates = []
+    kr_rates = []
 
-    task_data_dict = {
-        'labels': date_labels,
-        'planned': planned_rates,
-        'work': work_rates
-    }
+    for d in task_data:
+        okr = d.get('okr_data', {})
 
-    task_chart_path = output_dir / f'task_completion_rate_{year}_{month:02d}_w{week if week else 0}.svg'
-    if generate_chart_svg('task_completion', '任务完成率趋势', task_data_dict, task_chart_path, script_path):
-        chart_paths['task_completion_rate'] = str(task_chart_path)
+        todo_total = okr.get('todo_total', 0)
+        todo_completed = okr.get('todo_completed', 0)
+        todo_rates.append(todo_completed / todo_total * 100 if todo_total > 0 else 0)
 
-    return chart_paths
+        temp_total = okr.get('temp_total', 0)
+        temp_completed = okr.get('temp_completed', 0)
+        temp_rates.append(temp_completed / temp_total * 100 if temp_total > 0 else 0)
+
+        kr_total = okr.get('kr_total', 0)
+        kr_completed = okr.get('kr_completed', 0)
+        kr_rates.append(kr_completed / kr_total * 100 if kr_total > 0 else 0)
+
+    charts_section += "\n### OKR任务完成率趋势\n\n"
+    datasets = [
+        {'name': '📋待办', 'values': todo_rates, 'color': '#2196F3'},
+        {'name': '⚡临时', 'values': temp_rates, 'color': '#FF9800'},
+        {'name': '🎯KR', 'values': kr_rates, 'color': '#9C27B0'}
+    ]
+    svg = generate_line_chart_svg("OKR任务完成率趋势", okr_labels, datasets, y_max=100)
+    svg_encoded = base64.b64encode(svg.encode('utf-8')).decode('utf-8')
+    charts_section += f'<img src="data:image/svg+xml;base64,{svg_encoded}" alt="OKR完成率"/>\n'
+
+    # 4. KR优先级完成率 - 使用柱状图
+    kr_by_priority = goal_analysis.get('kr_by_priority', {})
+    if kr_by_priority and any(p['total'] > 0 for p in kr_by_priority.values()):
+        charts_section += "\n### KR按优先级完成率\n\n"
+        charts_section += "| 优先级 | 总数 | 已完成 | 完成率 |\n"
+        charts_section += "|:---|:---:|:---:|:---:|\n"
+
+        for p in ['P0', 'P1', 'P2']:
+            if p in kr_by_priority:
+                stats = kr_by_priority[p]
+                total = stats['total']
+                completed = stats['completed']
+                rate = f"{completed/total*100:.1f}%" if total > 0 else "0.0%"
+                emoji = {'P0': '🔴', 'P1': '🟡', 'P2': '🟢'}.get(p, '')
+                charts_section += f"| {emoji} {p} | {total} | {completed} | {rate} |\n"
+
+    return charts_section
 
 
 def generate_weekly_report(year: int, month: int, week: int, data: list,
@@ -1135,30 +1304,13 @@ def generate_weekly_report(year: int, month: int, week: int, data: list,
     task_achievements = extract_task_achievements(task_data, blood_sugar_data)
 
     # 生成图表
-    chart_paths = {}
     charts_section = ''
 
     if use_ai_charts:
-        # 查找 ascii-chart-to-svg 脚本
-        script_path = find_ascii_chart_script()
-        output_dir = output_path.parent
-
-        if script_path:
-            print(f"📊 使用 ascii-chart-to-svg 生成SVG图表...")
-            chart_paths = generate_charts_svg(
-                blood_sugar_data, consumption_data, task_data,
-                year, month, week, 'week', output_dir, script_path
-            )
-
-        # 构建图表引用
-        if chart_paths:
-            charts_section = '\n## 📈 趋势图表\n\n'
-            if 'blood_sugar_trend' in chart_paths:
-                charts_section += f'### 血糖监测趋势\n\n![血糖趋势]({Path(chart_paths["blood_sugar_trend"]).name})\n\n'
-            if 'consumption_trend' in chart_paths:
-                charts_section += f'### 每日消费趋势\n\n![消费趋势]({Path(chart_paths["consumption_trend"]).name})\n\n'
-            if 'task_completion_rate' in chart_paths:
-                charts_section += f'### 任务完成率趋势\n\n![任务完成率]({Path(chart_paths["task_completion_rate"]).name})\n\n'
+        print(f"📊 生成SVG折线图...")
+        charts_section = generate_charts_svg_inline(
+            blood_sugar_data, consumption_data, task_data, goal_analysis
+        )
 
     # 构建消费类别分布表格
     category_dist_section = ""
@@ -1249,28 +1401,43 @@ period: {year}年{month}月第{week}周
 
 ---
 
-## 🎯 目标完成情况
+## 🎯 OKR目标完成情况
 
-### 今日计划完成率
+### 任务完成概览
 
-| 指标 | 数值 |
-|:---|:---:|
-| 📋 总计划数 | {goal_analysis['total_planned']} 项 |
-| ✅ 已完成 | {goal_analysis['total_completed']} 项 |
-| ⏳ 未完成 | {goal_analysis['total_planned'] - goal_analysis['total_completed']} 项 |
-| 📊 完成率 | **{goal_analysis['planned_rate']*100:.1f}%** |
+| 任务类型 | 总数 | 已完成 | 进行中 | 已取消 | 完成率 |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| 📋 今日待办 | {goal_analysis['todo_total']} 项 | {goal_analysis['todo_completed']} 项 | - | - | **{goal_analysis['todo_rate']*100:.1f}%** |
+| ⚡ 临时任务 | {goal_analysis['temp_total']} 项 | {goal_analysis['temp_completed']} 项 | - | - | **{goal_analysis['temp_rate']*100:.1f}%** |
+| 🎯 关键结果(KR) | {goal_analysis['kr_total']} 项 | {goal_analysis['kr_completed']} 项 | {goal_analysis['kr_in_progress']} 项 | {goal_analysis['kr_cancelled']} 项 | **{goal_analysis['kr_rate']*100:.1f}%** |
+| **总计** | {goal_analysis['total_tasks']} 项 | {goal_analysis['total_completed']} 项 | {goal_analysis['kr_in_progress']} 项 | {goal_analysis['kr_cancelled']} 项 | **{goal_analysis['overall_rate']*100:.1f}%** |
 
-### 工作/学习任务完成率
+### KR按优先级统计
 
-| 指标 | 数值 |
-|:---|:---:|
-| 📋 总任务数 | {goal_analysis['total_work']} 项 |
-| ✅ 已完成 | {goal_analysis['total_work_completed']} 项 |
-| ⏳ 未完成 | {goal_analysis['total_work'] - goal_analysis['total_work_completed']} 项 |
-| 📊 完成率 | **{goal_analysis['work_rate']*100:.1f}%** |
+| 优先级 | 总数 | 已完成 | 完成率 |
+|:---|:---:|:---:|:---:|
+| 🔴 P0(最高) | {goal_analysis['kr_by_priority']['P0']['total']} 项 | {goal_analysis['kr_by_priority']['P0']['completed']} 项 | **{goal_analysis['kr_by_priority']['P0']['completed']/goal_analysis['kr_by_priority']['P0']['total']*100 if goal_analysis['kr_by_priority']['P0']['total'] > 0 else 0:.1f}%** |
+| 🟡 P1(高) | {goal_analysis['kr_by_priority']['P1']['total']} 项 | {goal_analysis['kr_by_priority']['P1']['completed']} 项 | **{goal_analysis['kr_by_priority']['P1']['completed']/goal_analysis['kr_by_priority']['P1']['total']*100 if goal_analysis['kr_by_priority']['P1']['total'] > 0 else 0:.1f}%** |
+| 🟢 P2(中) | {goal_analysis['kr_by_priority']['P2']['total']} 项 | {goal_analysis['kr_by_priority']['P2']['completed']} 项 | **{goal_analysis['kr_by_priority']['P2']['completed']/goal_analysis['kr_by_priority']['P2']['total']*100 if goal_analysis['kr_by_priority']['P2']['total'] > 0 else 0:.1f}%** |
+"""
 
-{charts_section}
----
+    # 添加按关联月OKR分组统计
+    if goal_analysis['kr_by_month_okr']:
+        report += "\n### KR按关联月OKR分组统计\n\n"
+        for okr_name, stats in goal_analysis['kr_by_month_okr'].items():
+            rate = stats['completed'] / stats['total'] * 100 if stats['total'] > 0 else 0
+            display_name = okr_name.replace('[[', '').replace(']]', '').replace('|月OKR', '').replace('|季度', '')
+            report += f"#### 📌 {display_name}\n\n"
+            report += "| 指标 | 数值 |\n"
+            report += "|:---|:---: |\n"
+            report += f"| KR总数 | {stats['total']} 项 |\n"
+            report += f"| 已完成 | {stats['completed']} 项 |\n"
+            report += f"| 进行中 | {stats['in_progress']} 项 |\n"
+            report += f"| 已取消 | {stats['cancelled']} 项 |\n"
+            report += f"| 完成率 | **{rate:.1f}%** |\n\n"
+
+    report += f"\n{charts_section}\n"
+    report += """---
 
 ## 📝 总结与建议
 
@@ -1305,11 +1472,31 @@ period: {year}年{month}月第{week}周
         if consumption_analysis['avg_daily'] <= 150:
             report += "- 消费水平合理，继续保持\n"
 
-    report += "\n**工作方面**:\n"
-    if goal_analysis['work_rate'] >= 0.8:
-        report += f"- ✅ 本周工作完成率较高（{goal_analysis['work_rate']*100:.1f}%），任务进展顺利\n"
+    report += "\n**OKR方面**:\n"
+
+    # 今日待办总结
+    if goal_analysis['todo_rate'] >= 0.8:
+        report += f"- ✅ 今日待办完成率 {goal_analysis['todo_rate']*100:.1f}%，日常任务规划良好\n"
     else:
-        report += f"- ⚠️ 工作完成率{goal_analysis['work_rate']*100:.1f}%，需要调整工作节奏\n"
+        report += f"- ⚠️ 今日待办完成率 {goal_analysis['todo_rate']*100:.1f}%，建议合理规划每日任务\n"
+
+    # KR关键结果总结
+    if goal_analysis['kr_rate'] >= 0.8:
+        report += f"- ✅ 关键结果(KR)完成率 {goal_analysis['kr_rate']*100:.1f}%，核心目标推进顺利\n"
+    elif goal_analysis['kr_rate'] >= 0.5:
+        report += f"- ⚠️ 关键结果(KR)完成率 {goal_analysis['kr_rate']*100:.1f}%，需要加快核心目标进度\n"
+    else:
+        report += f"- ❌ 关键结果(KR)完成率 {goal_analysis['kr_rate']*100:.1f}%，核心目标推进缓慢，需要重点关注\n"
+
+    # P0优先级KR总结
+    p0_total = goal_analysis['kr_by_priority']['P0']['total']
+    p0_completed = goal_analysis['kr_by_priority']['P0']['completed']
+    if p0_total > 0:
+        p0_rate = p0_completed / p0_total
+        if p0_rate < 1.0:
+            report += f"- 🔴 有 {p0_total - p0_completed} 个P0级KR未完成，建议优先处理高优先级任务\n"
+        else:
+            report += f"- ✅ 所有P0级KR已完成\n"
 
     report += "\n### 下周建议\n\n"
     report += "1. **健康改善**:\n"
@@ -1347,8 +1534,16 @@ def generate_monthly_report(year: int, month: int, data: list,
     生成月报表
     """
     blood_sugar_data = [{'date': d['date'], **parse_blood_sugar(d['content'])} for d in data]
-    consumption_data = [parse_consumption(d['content']) for d in data]
-    task_data = [parse_task_completion(d['content']) for d in data]
+    consumption_data = []
+    for d in data:
+        parsed = parse_consumption(d['content'])
+        parsed['date'] = d['date']
+        consumption_data.append(parsed)
+    task_data = []
+    for d in data:
+        parsed = parse_task_completion(d['content'])
+        parsed['date'] = d['date']
+        task_data.append(parsed)
     sleep_data = [parse_sleep_quality(d['content']) for d in data]
 
     blood_analysis = analyze_blood_sugar_trend(blood_sugar_data)
@@ -1371,6 +1566,13 @@ def generate_monthly_report(year: int, month: int, data: list,
                 year, month, None, 'month', output_dir, script_path
             )
 
+        # 生成KR按优先级完成率图表
+        priority_chart_path = output_dir / "okr_priority.svg"
+        priority_data = {'kr_by_priority': goal_analysis['kr_by_priority']}
+        if generate_chart_svg('okr_priority', 'KR按优先级完成率', priority_data,
+                             priority_chart_path, script_path):
+            chart_paths['okr_priority'] = priority_chart_path
+
         if chart_paths:
             charts_section = '\n## 📈 趋势图表\n\n'
             if 'blood_sugar_trend' in chart_paths:
@@ -1378,7 +1580,9 @@ def generate_monthly_report(year: int, month: int, data: list,
             if 'consumption_trend' in chart_paths:
                 charts_section += f'### 每日消费趋势\n\n![消费趋势]({Path(chart_paths["consumption_trend"]).name})\n\n'
             if 'task_completion_rate' in chart_paths:
-                charts_section += f'### 任务完成率趋势\n\n![任务完成率]({Path(chart_paths["task_completion_rate"]).name})\n\n'
+                charts_section += f'### OKR任务完成率趋势\n\n![OKR完成率]({Path(chart_paths["task_completion_rate"]).name})\n\n'
+            if 'okr_priority' in chart_paths:
+                charts_section += f'### KR按优先级完成率\n\n![KR优先级]({Path(chart_paths["okr_priority"]).name})\n\n'
 
     report = f"""---
 title: {year}年{month}月统计报表
@@ -1436,20 +1640,44 @@ period: {year}年{month}月
 
 """
 
-    report += f"""## 🎯 目标完成情况
+    report += f"""## 🎯 OKR目标完成情况
 
-### 今日计划完成率
-- **计划总数**: {goal_analysis['total_planned']} 项
-- **已完成**: {goal_analysis['total_completed']} 项
-- **完成率**: {goal_analysis['planned_rate']*100:.1f}%
+### 任务完成概览
 
-### 工作/学习任务完成率
-- **任务总数**: {goal_analysis['total_work']} 项
-- **已完成**: {goal_analysis['total_work_completed']} 项
-- **完成率**: {goal_analysis['work_rate']*100:.1f}%
+| 任务类型 | 总数 | 已完成 | 进行中 | 已取消 | 完成率 |
+|:---|:---:|:---:|:---:|:---:|:---:|
+| 📋 今日待办 | {goal_analysis['todo_total']} 项 | {goal_analysis['todo_completed']} 项 | - | - | **{goal_analysis['todo_rate']*100:.1f}%** |
+| ⚡ 临时任务 | {goal_analysis['temp_total']} 项 | {goal_analysis['temp_completed']} 项 | - | - | **{goal_analysis['temp_rate']*100:.1f}%** |
+| 🎯 关键结果(KR) | {goal_analysis['kr_total']} 项 | {goal_analysis['kr_completed']} 项 | {goal_analysis['kr_in_progress']} 项 | {goal_analysis['kr_cancelled']} 项 | **{goal_analysis['kr_rate']*100:.1f}%** |
+| **总计** | {goal_analysis['total_tasks']} 项 | {goal_analysis['total_completed']} 项 | {goal_analysis['kr_in_progress']} 项 | {goal_analysis['kr_cancelled']} 项 | **{goal_analysis['overall_rate']*100:.1f}%** |
 
-{charts_section}
-## 💡 建议与总结
+### KR按优先级统计
+
+| 优先级 | 总数 | 已完成 | 完成率 |
+|:---|:---:|:---:|:---:|
+| 🔴 P0(最高) | {goal_analysis['kr_by_priority']['P0']['total']} 项 | {goal_analysis['kr_by_priority']['P0']['completed']} 项 | **{goal_analysis['kr_by_priority']['P0']['completed']/goal_analysis['kr_by_priority']['P0']['total']*100 if goal_analysis['kr_by_priority']['P0']['total'] > 0 else 0:.1f}%** |
+| 🟡 P1(高) | {goal_analysis['kr_by_priority']['P1']['total']} 项 | {goal_analysis['kr_by_priority']['P1']['completed']} 项 | **{goal_analysis['kr_by_priority']['P1']['completed']/goal_analysis['kr_by_priority']['P1']['total']*100 if goal_analysis['kr_by_priority']['P1']['total'] > 0 else 0:.1f}%** |
+| 🟢 P2(中) | {goal_analysis['kr_by_priority']['P2']['total']} 项 | {goal_analysis['kr_by_priority']['P2']['completed']} 项 | **{goal_analysis['kr_by_priority']['P2']['completed']/goal_analysis['kr_by_priority']['P2']['total']*100 if goal_analysis['kr_by_priority']['P2']['total'] > 0 else 0:.1f}%** |
+
+"""
+
+    # 添加按关联月OKR分组统计
+    if goal_analysis['kr_by_month_okr']:
+        report += "### KR按关联月OKR分组统计\n\n"
+        for okr_name, stats in goal_analysis['kr_by_month_okr'].items():
+            rate = stats['completed'] / stats['total'] * 100 if stats['total'] > 0 else 0
+            display_name = okr_name.replace('[[', '').replace(']]', '').replace('|月OKR', '').replace('|季度', '')
+            report += f"#### 📌 {display_name}\n\n"
+            report += "| 指标 | 数值 |\n"
+            report += "|:---|:---: |\n"
+            report += f"| KR总数 | {stats['total']} 项 |\n"
+            report += f"| 已完成 | {stats['completed']} 项 |\n"
+            report += f"| 进行中 | {stats['in_progress']} 项 |\n"
+            report += f"| 已取消 | {stats['cancelled']} 项 |\n"
+            report += f"| 完成率 | **{rate:.1f}%** |\n\n"
+
+    report += f"{charts_section}"
+    report += """## 💡 建议与总结
 
 ### 健康建议
 """
@@ -1491,14 +1719,29 @@ period: {year}年{month}月
         report += f"- 主要消费类别为 {consumption_analysis['main_category']}，可关注该类别的支出优化\n"
         report += f"- 本月总支出 {consumption_analysis['total']:.2f} 元\n"
 
-    report += "\n### 目标达成建议\n"
-    if goal_analysis['planned_rate'] < 0.8:
-        report += f"- 今日计划完成率 {goal_analysis['planned_rate']*100:.1f}%，建议合理规划每日任务\n"
-    if goal_analysis['work_rate'] < 0.8:
-        report += f"- 工作学习完成率 {goal_analysis['work_rate']*100:.1f}%，建议调整工作节奏\n"
+    report += "\n### OKR达成建议\n"
 
-    if goal_analysis['planned_rate'] >= 0.8 and goal_analysis['work_rate'] >= 0.8:
-        report += "- 各项任务完成情况良好，继续保持！\n"
+    # 今日待办建议
+    if goal_analysis['todo_rate'] < 0.7:
+        report += f"- 今日待办完成率 {goal_analysis['todo_rate']*100:.1f}%，建议合理规划每日任务量\n"
+
+    # KR关键结果建议
+    if goal_analysis['kr_rate'] < 0.6:
+        report += f"- 关键结果(KR)完成率 {goal_analysis['kr_rate']*100:.1f}%，核心目标推进偏慢，建议:\n"
+        report += "  - 将大目标拆分为更小的可执行任务\n"
+        report += "  - 优先处理高优先级(P0/P1)的KR\n"
+    elif goal_analysis['kr_rate'] < 0.8:
+        report += f"- 关键结果(KR)完成率 {goal_analysis['kr_rate']*100:.1f}%，整体进展良好，可进一步提高效率\n"
+
+    # P0优先级建议
+    p0_total = goal_analysis['kr_by_priority']['P0']['total']
+    p0_completed = goal_analysis['kr_by_priority']['P0']['completed']
+    if p0_total > 0 and p0_completed < p0_total:
+        report += f"- 有 {p0_total - p0_completed} 个P0级高优先级KR未完成，建议优先处理\n"
+
+    # 总体评价
+    if goal_analysis['overall_rate'] >= 0.8:
+        report += "- ✅ 各项OKR任务完成情况良好，继续保持！\n"
 
     report += "\n---\n*本报表由周期统计报表生成器自动生成*"
 
@@ -1516,14 +1759,14 @@ def main():
                         help='年份 (默认为当前年)')
     parser.add_argument('--month', '-m', type=int, default=datetime.now().month,
                         help='月份 (默认为当前月)')
-    parser.add_argument('--end-month', '-e', type=int,
-                        help='结束月份 (跨月周报时使用，如1月最后一周跨到2月)')
     parser.add_argument('--week', '-w', type=int,
                         help='周数 (周报时必需)')
     parser.add_argument('--base-dir', '-b', default='.', help='日记基础目录')
     parser.add_argument('--output', '-o', help='输出文件路径 (可选)')
-    parser.add_argument('--ai-charts', action='store_true',
-                        help='使用 ascii-chart-to-svg 技能生成SVG图表')
+    parser.add_argument('--ai-charts', action='store_true', default=True,
+                        help='使用 ascii-chart-to-svg 技能生成SVG图表 (默认启用)')
+    parser.add_argument('--no-charts', action='store_true',
+                        help='禁用图表生成')
 
     args = parser.parse_args()
 
@@ -1533,7 +1776,7 @@ def main():
 
     base_dir = Path(args.base_dir)
 
-    diary_files = find_diary_files(base_dir, args.year, args.month, args.week, args.end_month)
+    diary_files = find_diary_files(base_dir, args.year, args.month, args.week)
 
     if not diary_files:
         print(f"❌ 未找到 {args.year}年{args.month}月", end='')
@@ -1569,10 +1812,12 @@ def main():
             month_dir = diary_files[0].parent.parent
             output_path = month_dir / f"{args.year}年{args.month}月统计报表.md"
 
+    use_charts = not args.no_charts
+
     if args.type == 'week':
-        generate_weekly_report(args.year, args.month, args.week, data, output_path, args.ai_charts)
+        generate_weekly_report(args.year, args.month, args.week, data, output_path, use_charts)
     else:
-        generate_monthly_report(args.year, args.month, data, output_path, args.ai_charts)
+        generate_monthly_report(args.year, args.month, data, output_path, use_charts)
 
 
 if __name__ == '__main__':
