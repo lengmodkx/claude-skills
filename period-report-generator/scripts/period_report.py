@@ -386,7 +386,7 @@ def parse_consumption(content: str) -> dict:
     if count_match:
         result['count'] = int(count_match.group(1))
 
-    total_match = re.search(r'总支出.*?：.*?\*\*(.+?)\*\*.*?元', content)
+    total_match = re.search(r'总支出.*?：.*?[💰\*]*\s*([\d.]+)\s*\*?\*?.*?元', content)
     if total_match:
         try:
             result['total'] = float(total_match.group(1))
@@ -397,7 +397,7 @@ def parse_consumption(content: str) -> dict:
     if max_match:
         result['max_amount'] = float(max_match.group(1))
 
-    category_match = re.search(r'主要类别.*?：(.+?)（', content)
+    category_match = re.search(r'主要类别.*?：(.+?)(?=\（|\n|$)', content)
     if category_match:
         result['main_category'] = category_match.group(1).strip()
 
@@ -883,30 +883,43 @@ def analyze_sleep_quality(data: list) -> dict:
 
 
 def generate_daily_blood_sugar_details(blood_sugar_data: list) -> str:
-    """生成逐日血糖数据明细"""
-    lines = ["\n**逐日数据**:\n"]
-
+    """生成逐日血糖数据明细表格"""
+    # 过滤出有数据的日期
+    valid_data = []
     for d in blood_sugar_data:
         date = d.get('date', '')
         fasting = d.get('fasting')
-        post_meal = d.get('post_meal')
-        bedtime = d.get('bedtime')
-
-        parts = []
         if fasting is not None:
-            status = "✅ 正常" if 3.9 <= fasting <= 6.1 else "⚠️ 偏高"
-            parts.append(f"空腹: {fasting} mmol/L {status}")
-        if post_meal is not None:
-            status = "✅ 正常" if 4.4 <= post_meal <= 7.8 else "⚠️ 偏高"
-            parts.append(f"餐后2h: {post_meal} mmol/L {status}")
-        if bedtime is not None:
-            status = "✅ 正常" if 4.4 <= bedtime <= 7.8 else "⚠️ 偏高"
-            parts.append(f"睡前: {bedtime} mmol/L {status}")
+            valid_data.append((date, fasting))
 
-        if parts:
-            lines.append(f"- {date}: {', '.join(parts)}")
+    if not valid_data:
+        return ""
 
-    return "\n".join(lines) if len(lines) > 1 else ""
+    # 构建表格
+    lines = ["\n**每日空腹血糖记录：**\n"]
+
+    # 表头
+    header = "| 日期 |"
+    for date, _ in valid_data:
+        day = date.split('-')[-1] if '-' in date else date
+        header += f" {day} |"
+    lines.append(header)
+
+    # 分隔符
+    separator = "|------|"
+    for _ in valid_data:
+        separator += "-------|"
+    lines.append(separator)
+
+    # 数据行
+    data_row = "| 血糖 |"
+    for _, fasting in valid_data:
+        data_row += f" {fasting} |"
+    lines.append(data_row)
+
+    lines.append("\n> 单位：mmol/L")
+
+    return "\n".join(lines)
 
 
 def generate_blood_sugar_conclusion(analysis: dict, report_type: str = "本周") -> str:
@@ -1519,6 +1532,14 @@ period: {year}年{month}月第{week}周
         report += "   - 合理规划任务，提高工作完成率\n"
     else:
         report += "   - 继续保持良好的工作状态\n"
+
+    # 添加相关链接
+    prev_week = week - 1
+    next_week = week + 1
+    report += f"\n---\n\n## 🔗 相关链接\n"
+    report += f"- 上周：[[第{prev_week}周统计报表]]\n"
+    report += f"- 下周：[[第{next_week}周统计报表]]\n"
+    report += f"- 月视图：[[{year}年{month}月OKR]]\n"
 
     report += "\n---\n*本报表由周期统计报表生成器自动生成*"
 
