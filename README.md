@@ -41,13 +41,16 @@ claude-skills/
 ├── changelog-generator/         # 自动生成 changelog
 ├── consumption-statistics/      # 消费统计助手
 ├── docx/                        # Word 文档处理
+├── fireworks-tech-graph/       # 技术图表生成（架构图、流程图等）
 ├── lemon-code-review/           # 代码审查与优化
 ├── lemon-commit-code/           # 代码提交与推送
+├── minimax-multimodal-toolkit/ # 多模态内容生成（图像/音频/视频）
 ├── pdf/                         # PDF 工具包
 ├── period-report-generator/     # 周期统计报表生成器
 ├── pptx/                        # PowerPoint 演示文稿处理
 ├── prompt-engineering/          # 提示词工程
 ├── publish-blog/                # 博客发布助手
+├── pua-debugging/              # PUA 代码调试
 ├── skill-creator/               # 技能创建指南
 ├── slack-gif-creator/           # Slack GIF 创建器
 └── web-artifacts-builder/       # Web artifacts 构建器
@@ -75,6 +78,9 @@ claude-skills/
 | **pdf** | PDF 工具包，支持文本提取、表格处理、表单填写、合并拆分 | 文档处理 |
 | **pptx** | 演示文稿创建、编辑、分析，支持布局和演讲者备注 | 文档处理 |
 | **changelog-generator** | 从 git commits 自动生成用户友好的 changelog | 文档自动化 |
+| **fireworks-tech-graph** | 技术图表生成，支持架构图、流程图、序列图等 7 种样式 | 设计工具 |
+| **minimax-multimodal-toolkit** | 多模态内容生成，支持图像、音频（TTS/音乐）、视频 | 多模态 |
+| **pua-debugging** | PUA 代码调试助手 | 开发工具 |
 | **skill-creator** | 创建有效技能的指南，帮助扩展 Claude 能力 | 开发工具 |
 | **prompt-engineering** | 优化 LLM 交互的提示工程技能 | 开发工具 |
 | **slack-gif-creator** | 创建适合 Slack 的动画 GIF | 媒体工具 |
@@ -220,6 +226,16 @@ Copy-Item -Path "claude-skills\third-party\obsidian-skills\*" -Destination "$env
 - 最佳实践
 - 示例模板
 
+#### pua-debugging
+PUA 代码调试助手。帮助你分析和调试 PUA（Progress UI Application）相关代码问题。
+
+**功能：**
+- PUA 代码分析
+- 调试技巧指导
+- 问题定位与修复建议
+
+**触发词：** "PUA 调试"、"PUA 问题"
+
 #### prompt-engineering
 优化与 LLM 交互的提示工程技能。帮助你编写更有效的提示词。
 
@@ -284,6 +300,51 @@ Copy-Item -Path "claude-skills\third-party\obsidian-skills\*" -Destination "$env
 - 艺术作品
 - 营销材料
 - 信息图表
+
+#### fireworks-tech-graph
+技术图表生成技能，支持多种图表样式。
+
+**支持的图表类型：**
+- 架构图 (Architecture)
+- 流程图 (Flowchart)
+- 序列图 (Sequence)
+- 数据流图 (Data Flow)
+- 状态机 (State Machine)
+- ER 图 (ER Diagram)
+- 时间线 (Timeline)
+- 用例图 (Use Case)
+- 对比矩阵 (Comparison Matrix)
+- Agent 架构图
+
+**支持的样式：**
+- Style 1: Flat Icon（扁平图标）
+- Style 2: Dark Terminal（深色终端）
+- Style 3: Blueprint（蓝图风格）
+- Style 4: Notion Clean（Notion 简洁风）
+- Style 5: Glassmorphism（玻璃拟态）
+- Style 6: Claude Official（Claude 官方风格）
+- Style 7: OpenAI（OpenAI 风格）
+
+**触发词：** "画图"、"帮我画"、"生成图"、"做架构图"、"出图"
+
+#### minimax-multimodal-toolkit
+MiniMax 多模态内容生成工具包。
+
+**功能模块：**
+- **图像生成**: 文本到图像、图像到图像（支持角色参考）
+- **TTS 语音**: 文本转语音、语音克隆、语音设计
+- **音乐生成**: 歌曲生成、器乐伴奏
+- **视频生成**: 文本到视频、图像到视频、长视频多场景
+
+**脚本支持：**
+- `generate_image.sh` - 图像生成
+- `generate_voice.sh` - 语音合成
+- `generate_music.sh` - 音乐生成
+- `generate_video.sh` - 视频生成
+- `generate_long_video.sh` - 长视频生成
+- `media_tools.sh` - 媒体处理（转换、拼接、裁剪）
+
+**触发词：** "生成图片"、"生成语音"、"生成音乐"、"生成视频"
 
 #### slack-gif-creator
 创建适合 Slack 分享的动画 GIF。
