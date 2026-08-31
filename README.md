@@ -43,7 +43,6 @@ claude-skills/
 ├── docx/                        # Word 文档处理
 ├── fireworks-tech-graph/       # 技术图表生成（架构图、流程图等）
 ├── lemon-code-review/           # 代码审查与优化
-├── lemon-commit-code/           # 代码提交与推送
 ├── minimax-multimodal-toolkit/ # 多模态内容生成（图像/音频/视频）
 ├── pdf/                         # PDF 工具包
 ├── period-report-generator/     # 周期统计报表生成器
@@ -66,7 +65,6 @@ claude-skills/
 
 | 技能名称 | 描述 | 类型 |
 |---------|------|------|
-| **lemon-commit-code** | 代码提交与推送技能，支持 Conventional Commits 规范，推送到所有仓库 | 开发工具 |
 | **lemon-code-review** | 代码审查与优化，支持 Java/Spring/MyBatis 等后端技术栈 | 代码质量 |
 | **consumption-statistics** | 自动统计日记中的今日消费清单并填写统计数据 | 生活助手 |
 | **period-report-generator** | 根据日记文件生成周/月统计报表，包括血糖、消费、目标完成率 | 数据分析 |
@@ -185,21 +183,6 @@ Copy-Item -Path "claude-skills\third-party\obsidian-skills\*" -Destination "$env
 ## 📚 技能详解
 
 ### 🛠️ 开发工具类
-
-#### lemon-commit-code
-代码提交与推送技能。自动审查代码、生成符合 Conventional Commits 规范的提交信息，并推送到所有远程仓库（GitHub、Gitee 等）。
-
-**特性：**
-- 自动代码审查（安全性、性能、规范）
-- 生成规范的提交信息
-- 推送到所有远程仓库
-- 不添加 AI 署名信息
-
-**使用场景：**
-```
-提交代码
-帮我提交并推送
-```
 
 #### lemon-code-review
 专业的代码审查与优化技能。针对 Java/Spring/MyBatis 等后端技术栈进行深度审查。
